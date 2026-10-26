@@ -257,6 +257,8 @@ em 5+1 ainda precisa ser disputada; a validação funcional não prova ganho de 
 
 ## Origem e licença
 
-Stockfish 19, fontes e autores em ../stockfish. GPLv3 em LICENSE.
+Stockfish 19, tag sf_19, commit edb0d9db6731067ec50ce619ff372b463bc4dd5d.
+A [declaração de origem](../STOCKFISH.md) contém os links dos fontes, autores,
+licença e identificação da instalação local em ../stockfish. GPLv3 em LICENSE.
 Declare à banca versão/commit de origem, dependências e contribuição própria.
 A aceitação formal do componente decisório cabe à banca.

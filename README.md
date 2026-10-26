@@ -30,10 +30,14 @@ O Stockfish é uma dependência externa. Obtenha a versão 19 no
 Também é possível fornecer o caminho com `--motor` ou instalar o comando
 `stockfish` no PATH. Não há download nem acesso à rede durante as partidas.
 
-Os [fontes e autores do Stockfish](https://github.com/official-stockfish/Stockfish)
-são mantidos pelo projeto original. O executável instalado localmente e seus
-fontes não são incluídos neste repositório; nossa camada de decisão fica em
-`projeto/chess_challenge/`. Declare a versão/commit de origem à banca.
+**Projeto-base declarado:** [Stockfish 19, tag sf_19](https://github.com/official-stockfish/Stockfish/tree/sf_19),
+commit [`edb0d9db6731067ec50ce619ff372b463bc4dd5d`](https://github.com/official-stockfish/Stockfish/commit/edb0d9db6731067ec50ce619ff372b463bc4dd5d).
+Os fontes C++ e a rede NNUE do motor não foram alterados por esta equipe.
+Nossa camada de decisão fica em `projeto/chess_challenge/`.
+
+A [declaração de origem do Stockfish](STOCKFISH.md) reúne os links do código-fonte
+da versão utilizada, seus autores, a licença e a identificação do executável local.
+O executável e seus fontes são instalados separadamente e não estão neste Git.
 
 ## Verificar e testar
 
