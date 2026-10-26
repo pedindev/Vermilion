@@ -1,0 +1,56 @@
+Abaixo estão as perguntas frequentes com as regras da competição. Pedimos que todos leiam com atenção antes do evento.
+
+FAQ – III Chess Challenge
+1. Fork de Stockfish ou Modelos LLM são permitidos?
+Sim, desde que tudo rode localmente. A equipe deve declarar no credenciamento o projeto-base e o commit/versão de origem, e disponibilizar o repositório à banca ao final do evento. Atenção: o Stockfish é licenciado em GPLv3 – trabalhos derivados herdam a licença e exigem publicação do código-fonte.
+
+2. O que é considerado "modificação significativa"?
+A equipe deve implementar, com autoria própria, ao menos um componente decisório do motor: a função de avaliação (heurística), o método de busca/seleção de lances, ou a gestão de tempo. O componente precisa estar funcional durante as partidas e ser defendido na arguição técnica.
+Não são consideradas modificação significativa: reformatação de código, tradução de comentários, renomeação de variáveis, nem o mero ajuste de parâmetros já existentes no projeto-base.
+
+3. Opening book local é permitido?
+Sim. O book pode ser próprio ou de terceiros (ex.: Polyglot .bin), desde que baixado antes do evento e carregado localmente. Limite de 10 meios-lances (5 lances de cada cor): a partir daí o software deve decidir por conta própria. Book de terceiros não conta como autoria da equipe.
+
+4. Tablebases locais são permitidas?
+Sim, até 5 peças. Tablebases de 6 ou 7 peças não são permitidas, pois substituiriam justamente a lógica de final de jogo que se quer avaliar. Tablebases não contam como autoria.
+
+5. Qual será o hardware?
+O notebook da própria equipe. É responsabilidade de cada equipe replicar em seu software as jogadas de ambos os lados e manter o estado do jogo consistente.
+
+6. Cada equipe usa notebook próprio?
+Sim – um por equipe, durante todas as partidas.
+
+7. Há limite de CPU/threads/RAM?
+Não. O que é fixo é o relógio: 15 minutos por equipe, com incremento de 10 segundos por lance. O software deve gerir seu próprio tempo dentro desse orçamento.
+
+8. GPU pode ser utilizada?
+Sim, desde que local e declarada.
+
+9. O software precisa ter interface específica?
+Não – linha de comando é suficiente. É obrigatório, porém, registrar log em .txt ou .log contendo, para cada lance: número do lance, cor, lance escolhido em notação UCI, profundidade atingida, nós avaliados, avaliação da posição, variante principal (PV) e tempo gasto. O log será entregue à banca ao final de cada partida.
+
+10. Como a jogada adversária será informada?
+Protocolo obrigatório, em quatro passos:
+
+A equipe anuncia o lance em voz alta, em notação UCI (e2e4, g1f3, e7e8q) – não em notação algébrica abreviada, que gera ambiguidade na fala.
+A equipe adversária repete o lance em voz alta para confirmação.
+A peça é movida no tabuleiro físico e o relógio é acionado pela equipe que anunciou.
+Cada equipe insere o lance em seu próprio software.
+O tabuleiro físico, mantido pelas equipes, é a fonte da verdade. Divergência entre tabuleiro e software é resolvida pelo tabuleiro. Lance ilegal anunciado é anulado e a equipe deve anunciar lance legal com o relógio correndo.
+
+11. Como serão escolhidas brancas e pretas?
+Pelo pareamento: a equipe à esquerda joga a primeira partida com as brancas. Em melhor de 3, as cores se alternam a cada partida – a terceira partida repete a cor da primeira.
+
+12. Como desempata uma melhor de 3 com muitos empates?
+Empate por tripla repetição e pela regra dos 50 lances é declarado automaticamente pelo árbitro, sem necessidade de reclamação.
+Persistindo o empate no confronto, decide-se pelo tempo total restante somado nas três partidas. Permanecendo a igualdade, disputa-se um Armageddon: brancas com 5 minutos, pretas com 4 minutos, empate classificando as pretas; as cores são sorteadas.
+
+13. É permitido ponderar durante o turno adversário?
+Sim. O software pode calcular durante o turno do adversário. Como o lance chega por anúncio verbal, cabe à equipe lidar com o atraso de entrada – a organização não garante sincronia entre os sistemas.
+
+14. Bibliotecas externas instaladas localmente são permitidas?
+Sim, qualquer biblioteca instalada localmente antes do evento, incluindo bibliotecas de xadrez para representação do tabuleiro e geração de lances legais (ex.: python-chess). Usar biblioteca nessa camada não prejudica a avaliação: o que se avalia é a camada de decisão – heurística, seleção de lance e gestão de tempo.
+Nenhuma requisição externa é permitida durante as partidas. Wi-Fi e dados móveis devem estar desligados, com verificação pelo árbitro no início de cada jogo. As dependências devem ser declaradas (requirements.txt, package.json ou equivalente).
+
+15. Existe limite de tamanho do repositório/modelos?
+Não há limite de tamanho. Pesos de modelos e arquivos grandes podem ser entregues à banca em mídia física, acompanhados de declaração de origem. Pesos baixados de terceiros não contam como autoria; pesos treinados pela equipe contam, desde que acompanhados do código de treinamento.
