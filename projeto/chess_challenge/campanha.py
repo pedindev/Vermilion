@@ -5,6 +5,7 @@ empatada no Armageddon continua E; a classificação é uma informação separad
 """
 
 from dataclasses import asdict, dataclass, field, replace
+from contextlib import closing
 from datetime import datetime, timezone
 import json
 from math import isfinite
@@ -105,7 +106,7 @@ class Confronto:
     fase: str = "classificacao"
     rodada: int = 1
     formato: str = "unica"
-    primeira_cor: bool = True
+    primeira_cor: bool | None = True
     id: str = field(default_factory=lambda: uuid4().hex)
     partidas: list = field(default_factory=list)
     cor_armageddon: bool | None = None
@@ -120,8 +121,10 @@ class Confronto:
     def validar(self):
         if not self.adversario.strip() or self.fase not in FASES or self.formato not in ("unica", "melhor-de-tres"):
             raise ValueError("Adversário, fase ou formato inválido.")
-        if type(self.rodada) is not int or self.rodada < 1 or type(self.primeira_cor) is not bool:
+        if type(self.rodada) is not int or self.rodada < 1 or (self.primeira_cor is not None and type(self.primeira_cor) is not bool):
             raise ValueError("Rodada ou primeira cor inválida.")
+        if self.primeira_cor is None and any(not p["armageddon"] and p["status"] != "cancelada" for p in self.partidas):
+            raise ValueError("Partida normal registrada sem a definição da primeira cor.")
         if self.cor_armageddon is not None and type(self.cor_armageddon) is not bool:
             raise ValueError("Cor sorteada inválida.")
         if self.objetivo_informado not in OBJETIVOS:
@@ -239,6 +242,8 @@ class Confronto:
         arm = situacao["status"] == "armageddon"
         if arm and self.cor_armageddon is None:
             raise ValueError("Informe a cor sorteada no Armageddon.")
+        if not arm and self.primeira_cor is None:
+            raise ValueError("Informe a cor antes de iniciar a primeira partida.")
         indice = len([p for p in self.concluidas if not p["armageddon"]])
         cor = self.cor_armageddon if arm else (self.primeira_cor if indice % 2 == 0 else not self.primeira_cor)
         tempos = (regras.armageddon_brancas, regras.armageddon_pretas) if arm else (regras.tempo, regras.tempo)
@@ -391,7 +396,7 @@ class Repositorio:
     def criar(self, campanha):
         campanha.validar()
         self.caminho.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.caminho) as banco:
+        with closing(sqlite3.connect(self.caminho)) as banco, banco:
             banco.execute("CREATE TABLE IF NOT EXISTS campanha (id INTEGER PRIMARY KEY CHECK(id=1), revisao INTEGER NOT NULL, dados TEXT NOT NULL)")
             if banco.execute("SELECT 1 FROM campanha").fetchone():
                 raise ValueError("Já existe uma campanha neste arquivo.")
@@ -400,7 +405,7 @@ class Repositorio:
     def carregar(self):
         if not self.caminho.is_file():
             raise FileNotFoundError(f"Campanha não encontrada: {self.caminho}")
-        with sqlite3.connect(self.caminho) as banco:
+        with closing(sqlite3.connect(self.caminho)) as banco, banco:
             linha = banco.execute("SELECT revisao,dados FROM campanha WHERE id=1").fetchone()
         if linha is None:
             raise ValueError("Banco sem campanha.")
@@ -419,7 +424,7 @@ class Repositorio:
             raise FileNotFoundError("Crie a campanha antes de salvar.")
         dados = asdict(campanha)
         dados["revisao"] += 1
-        with sqlite3.connect(self.caminho) as banco:
+        with closing(sqlite3.connect(self.caminho)) as banco, banco:
             alterado = banco.execute("UPDATE campanha SET revisao=?,dados=? WHERE id=1 AND revisao=?",
                 (dados["revisao"], json.dumps(dados, ensure_ascii=False, allow_nan=False), campanha.revisao)).rowcount
             if alterado != 1:

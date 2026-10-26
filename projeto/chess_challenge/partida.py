@@ -1,10 +1,11 @@
 """Base local para operar o Stockfish no III Chess Challenge."""
 
 import argparse
+from dataclasses import replace
+from time import monotonic
 from functools import partial
 from math import isfinite
 from pathlib import Path
-import re
 import sys
 
 import chess
@@ -13,6 +14,7 @@ import chess.engine
 from .motor import abrir_motor, THREADS_PADRAO, HASH_PADRAO
 from .inteligencia import Jogador, MODOS
 from .relatorios import PASTA_RELATORIOS, registrar_lance, salvar_relatorio
+from .relogio import RelogioPartida, TempoEsgotado, entrada_com_prazo, formatar_relogios
 
 
 def motivo_encerramento(tabuleiro):
@@ -36,21 +38,20 @@ def mostrar_tabuleiro(tabuleiro):
 
 
 def ler_entrada(texto, tabuleiro):
-    partes = texto.lower().split()
-    if len(partes) != 2 or not re.fullmatch(r"[0-9]{1,3}:[0-5][0-9]", partes[1]):
-        raise ValueError("Use lance UCI e nosso tempo: e7e5 14:50.")
+    partes = texto.strip().lower().split()
+    if len(partes) != 1:
+        raise ValueError("Digite apenas o lance UCI, por exemplo: e7e5.")
     try:
         lance = chess.Move.from_uci(partes[0])
     except ValueError as erro:
         raise ValueError("Formato de lance inválido. Exemplo: e7e5.") from erro
     if lance not in tabuleiro.legal_moves:
         raise ValueError("Lance ilegal. A posição foi mantida.")
-    minutos, segundos = map(int, partes[1].split(":"))
-    return lance, minutos * 60 + segundos
+    return lance
 
 
 def oferecer_relatorio(registros, resultado, cor, incremento, nome_motor, restante,
-                       entrada, saida, pasta, configuracao=""):
+                       entrada, saida, pasta, configuracao="", relogios=None):
     while True:
         try:
             resposta = entrada("\nDeseja salvar o relatório? [s/n]: ").strip().lower()
@@ -66,7 +67,7 @@ def oferecer_relatorio(registros, resultado, cor, incremento, nome_motor, restan
         try:
             nome = entrada("Nome da partida: ")
             caminho = salvar_relatorio(nome, registros, resultado, cor, incremento,
-                                       nome_motor, pasta, restante, configuracao)
+                                       nome_motor, pasta, restante, configuracao, relogios=relogios)
         except (EOFError, KeyboardInterrupt):
             return
         except (ValueError, OSError) as erro:
@@ -79,13 +80,15 @@ def oferecer_relatorio(registros, resultado, cor, incremento, nome_motor, restan
 def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_motor,
              pasta_relatorios=PASTA_RELATORIOS, tempo=900, incremento=10, modo="completo",
              configuracao="", cor_inicial=None, contexto=None, acompanhamento=None,
-             tempo_adversario=None):
+             tempo_adversario=None, agora=monotonic):
     if not isfinite(tempo) or tempo <= 0 or not isfinite(incremento) or incremento < 0:
         raise ValueError("Tempo deve ser positivo e incremento não negativo.")
+    if cor_inicial is not None and type(cor_inicial) is not bool:
+        raise ValueError("Cor inicial inválida.")
     tabuleiro, registros = chess.Board(), []
-    cor, restante, nome_motor = cor_inicial, tempo, "Stockfish"
-    saldo_adversario = tempo_adversario
+    cor, nome_motor, relogio = cor_inicial, "Stockfish", None
     resultado, sem_entrada, falha = "Partida interrompida.", False, None
+    saldos = {True: tempo, False: tempo}
     try:
         while cor is None:
             escolha = entrada("Sua equipe joga com [1] Brancas ou [2] Pretas? ").strip().lower()
@@ -104,65 +107,81 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
             saida(f"Motor conectado: {nome_motor}. Modo: {modo}.\n")
             if configuracao:
                 saida(configuracao + "\n")
-            while not (fim := motivo_encerramento(tabuleiro)):
-                calculado = None
-                if tabuleiro.turn == cor:
-                    if restante <= 0:
-                        resultado = "Saldo informado esgotado. Confira o resultado com o árbitro."
-                        break
-                    saida("IA pensando...\n")
-                    calculado = jogador.calcular(tabuleiro, restante, incremento, adversario=saldo_adversario)
-                    if calculado.tempo >= restante:
-                        resultado = "Motor retornou após o saldo informado; lance não aplicado. Confira o árbitro."
-                        break
-                    lance = calculado.lance
-                    restante = restante - calculado.tempo + incremento
-                    saida(f"Análise: {calculado.tempo:.2f}s | antecipação {calculado.detalhes['antecipacao']} | "
-                          f"{calculado.detalhes['criterio']}.\n")
+            inicial_outro = tempo if tempo_adversario is None else tempo_adversario
+            saldos = {cor: tempo, not cor: inicial_outro}
+            relogio = RelogioPartida(saldos[True], saldos[False], incremento, agora)
+            saida("Relógios automáticos iniciados. Digite apenas o lance adversário.\n")
+            relogio.iniciar(chess.WHITE)
+            try:
+                while not (fim := motivo_encerramento(tabuleiro)):
+                    turno = tabuleiro.turn
+                    if relogio.saldos()[turno] <= 0:
+                        raise TempoEsgotado(turno)
+                    calculado = None
+                    if turno == cor:
+                        saida("IA pensando...\n")
+                        atuais = relogio.saldos()
+                        calculado = jogador.calcular(tabuleiro, atuais[cor], incremento,
+                                                      adversario=atuais[not cor])
+                        lance = calculado.lance
+                        futura = tabuleiro.copy(stack=True)
+                        futura.push(lance)
+                        if not motivo_encerramento(futura):
+                            jogador.preparar(futura, calculado)
+                    else:
+                        try:
+                            texto = entrada_com_prazo(entrada, "Adversário — digite o lance UCI: ",
+                                                       relogio.saldos()[turno])
+                        except TimeoutError:
+                            raise TempoEsgotado(turno) from None
+                        try:
+                            lance = ler_entrada(texto, tabuleiro)
+                        except ValueError as erro:
+                            saida(f"{erro}\n")
+                            continue  # Mesmo turno e mesmo relógio, sem reiniciar o prazo.
+                    gasto = relogio.confirmar_lance(turno)
+                    registro = registrar_lance(tabuleiro, lance, cor, calculado)
+                    tabuleiro.push(lance)
+                    saldos = relogio.parar() if motivo_encerramento(tabuleiro) else relogio.saldos()
+                    registro = replace(registro, tempo=gasto, saldo_brancas=saldos[True],
+                                       saldo_pretas=saldos[False], fonte_tempo="relogio_do_sistema")
+                    registros.append(registro)
+                    if calculado is not None:
+                        saida(f"Análise: {calculado.tempo:.2f}s | "
+                              f"{calculado.detalhes.get('criterio', 'Stockfish')}.\n")
+                    saida(f"{registro.numero}. {registro.autor} | {registro.cor} | {registro.uci}\n")
+                    saida(mostrar_tabuleiro(tabuleiro) + "\n")
+                    saida(formatar_relogios(relogio.saldos()) + "\n")
+                    if acompanhamento:
+                        acompanhamento("lance", tabuleiro, registros, relogio.saldos(), resultado)
                 else:
-                    texto = entrada("Adversário — UCI e nosso tempo" +
-                        (", opcionalmente tempo adversário (e7e5 14:50 14:40): " if acompanhamento else " (e7e5 14:50): "))
-                    try:
-                        partes = texto.split()
-                        if acompanhamento and len(partes) == 3:
-                            lance, novo_saldo = ler_entrada(" ".join(partes[:2]), tabuleiro)
-                            if not re.fullmatch(r"[0-9]{1,3}:[0-5][0-9]", partes[2]):
-                                raise ValueError("Tempo adversário inválido. Use mm:ss.")
-                            m, s = map(int, partes[2].split(":"))
-                            saldo_adversario = m * 60 + s
-                        else:
-                            lance, novo_saldo = ler_entrada(texto, tabuleiro)
-                            saldo_adversario = None
-                    except ValueError as erro:
-                        saida(f"{erro}\n")
-                        continue
-                    restante = novo_saldo
-                registro = registrar_lance(tabuleiro, lance, cor, calculado)
-                tabuleiro.push(lance)
-                registros.append(registro)
-                if acompanhamento:
-                    acompanhamento("lance", tabuleiro, registros, restante, resultado)
-                saida(f"{registro.numero}. {registro.autor} | {registro.cor} | {registro.uci}\n")
-                saida(mostrar_tabuleiro(tabuleiro) + "\n")
-                if calculado is not None and not motivo_encerramento(tabuleiro):
-                    jogador.preparar(tabuleiro, calculado)
-            else:
-                resultado = fim
+                    resultado = fim
+            except TempoEsgotado as erro:
+                empate = tabuleiro.has_insufficient_material(not erro.cor)
+                resultado = (f"{erro} Empate: adversário sem material para mate." if empate
+                             else f"{erro} Vitória das {'pretas' if erro.cor else 'brancas'}.")
+            finally:
+                saldos = relogio.parar()  # Parar antes de fechar o motor ou perguntar sobre TXT.
             saida(resultado)
     except EOFError:
         sem_entrada = True
-        saida("\nEntrada encerrada. Partida interrompida.")
+        resultado = "Entrada encerrada. Partida interrompida."
+        saida("\n" + resultado)
     except KeyboardInterrupt:
-        saida("\nPartida interrompida pelo operador.")
+        resultado = "Partida interrompida pelo operador."
+        saida("\n" + resultado)
     except (OSError, chess.engine.EngineError, TimeoutError) as erro:
         falha = erro
         resultado = f"Partida interrompida por falha: {erro or type(erro).__name__}"
         saida(resultado)
+    if relogio is not None:
+        saldos = relogio.parar()
     if acompanhamento:
-        acompanhamento("fim", tabuleiro, registros, restante, resultado)
+        acompanhamento("fim", tabuleiro, registros, saldos, resultado)
     if registros and not sem_entrada:
-        oferecer_relatorio(registros, resultado, cor, incremento, nome_motor, restante,
-                           entrada, saida, pasta_relatorios, f"Modo: {modo}. {configuracao}")
+        oferecer_relatorio(registros, resultado, cor, incremento, nome_motor, saldos[cor],
+                           entrada, saida, pasta_relatorios, f"Modo: {modo}. {configuracao}",
+                           relogios=saldos)
     if falha is not None:
         raise falha
     return tabuleiro

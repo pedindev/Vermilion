@@ -69,7 +69,7 @@ def test_envia_relogio_e_incremento_ao_motor_sem_movetime(brancas):
     assert (limite.white_inc, limite.black_inc) == ((10, None) if brancas else (None, 10))
 
 
-@pytest.mark.parametrize("texto", ["e2e5 14:50", "e7e5 14:50", "e4 14:50", "e2e4 14:60", "e2e4", "0000 14:50"])
+@pytest.mark.parametrize("texto", ["e2e5", "e7e5", "e4", "e2e4 14:60", "e2e4 14:50", "0000"])
 def test_entrada_invalida_nao_altera_tabuleiro(texto):
     board = chess.Board()
     with pytest.raises(ValueError):
@@ -77,21 +77,22 @@ def test_entrada_invalida_nao_altera_tabuleiro(texto):
     assert board.fen() == chess.STARTING_FEN and not board.move_stack
 
 
-def test_entrada_valida_converte_relogio_sem_aplicar_antes_da_validacao():
+def test_entrada_valida_aceita_apenas_uci_sem_aplicar_antes_da_validacao():
     board = chess.Board()
-    lance, saldo = ler_entrada(" E2E4 14:50 ", board)
-    assert lance.uci() == "e2e4" and saldo == 890 and not board.move_stack
+    lance = ler_entrada(" E2E4 ", board)
+    assert lance.uci() == "e2e4" and not board.move_stack
 
 
 def test_partida_automatica_da_equipe_relogio_e_tabuleiro_apos_cada_lance(tmp_path):
     motor = MotorSimulado(["e2e4", "g1f3"])
     saidas = []
-    board = executar(entrada_programada(["1", "e7e5 14:50"]), saidas.append,
-                      conectar=lambda: motor, pasta_relatorios=tmp_path)
+    board = executar(entrada_programada(["1", "e7e5"]), saidas.append,
+                      conectar=lambda: motor, pasta_relatorios=tmp_path, agora=lambda: 0)
     assert [m.uci() for m in board.move_stack] == ["e2e4", "e7e5", "g1f3"]
     assert motor.consultas[0][1].white_clock == pytest.approx(900, abs=.02)
     assert motor.consultas[0][1].white_inc == 10
-    assert motor.consultas[1][1].white_clock == pytest.approx(890, abs=.02)
+    assert motor.consultas[1][1].white_clock == pytest.approx(910, abs=.02)
+    assert motor.consultas[1][1].black_clock == 910
     assert sum("a b c d e f g h" in s for s in saidas) == 3
     assert motor.fechado and not list(tmp_path.iterdir())
 
@@ -99,7 +100,7 @@ def test_partida_automatica_da_equipe_relogio_e_tabuleiro_apos_cada_lance(tmp_pa
 @pytest.mark.parametrize("cor", ["1", "2"])
 def test_mate_salva_log_so_apos_consentimento_e_nome(tmp_path, cor):
     motor = MotorSimulado(["f2f3", "g2g4"] if cor == "1" else ["e7e5", "d8h4"])
-    valores = [cor] + (["e7e5 14:50", "d8h4 14:40"] if cor == "1" else ["f2f3 14:50", "g2g4 14:40"]) + ["s", "Final"]
+    valores = [cor] + (["e7e5", "d8h4"] if cor == "1" else ["f2f3", "g2g4"]) + ["s", "Final"]
     ler = entrada_programada(valores)
 
     def entrada(prompt):
@@ -118,7 +119,7 @@ def test_mate_salva_log_so_apos_consentimento_e_nome(tmp_path, cor):
 @pytest.mark.parametrize("resposta", ["n", "", EOFError()])
 def test_recusa_nao_cria_relatorio(tmp_path, resposta):
     motor = MotorSimulado(["e7e5", "d8h4"])
-    executar(entrada_programada(["2", "f2f3 14:50", "g2g4 14:40", resposta]),
+    executar(entrada_programada(["2", "f2f3", "g2g4", resposta]),
              lambda _: None, conectar=lambda: motor, pasta_relatorios=tmp_path)
     assert not list(tmp_path.iterdir())
 
@@ -135,7 +136,7 @@ def test_ctrl_c_permite_salvar_partida_incompleta(tmp_path):
 def test_erro_motor_permite_salvar_lances_anteriores(tmp_path):
     motor = MotorSimulado(["e2e4", chess.engine.EngineTerminatedError("encerrado")])
     with pytest.raises(chess.engine.EngineTerminatedError):
-        executar(entrada_programada(["1", "e7e5 14:50", "s", "Falha"]), lambda _: None,
+        executar(entrada_programada(["1", "e7e5", "s", "Falha"]), lambda _: None,
                  conectar=lambda: motor, pasta_relatorios=tmp_path)
     assert "e7e5" in (tmp_path / "Falha.txt").read_text(encoding="utf-8")
 

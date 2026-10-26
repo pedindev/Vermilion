@@ -13,6 +13,7 @@ ganho competitivo são questões distintas: não demonstramos ganho de força ou
       inteligencia.py                antecipação, busca e verificação
       motor.py                       executável Stockfish, recursos e UCI
       partida.py                     turnos, entrada e tabuleiro no terminal
+      relogio.py                     dois relógios automáticos e entrada com prazo
       torneio.py                     operação da campanha
       relatorios.py                  registros técnicos e exportação TXT autorizada
     tests/
@@ -138,15 +139,27 @@ Todos os comandos usam por padrão dados/campanha.sqlite3.
     # Consultar a campanha e IDs pendentes:
     ./.venv/Scripts/python.exe -X utf8 jogar.py campanha status
 
-Durante o jogo, digite o lance adversário e NOSSO relógio físico: e7e5 14:50.
-Opcionalmente acrescente o saldo adversário: e7e5 14:50 14:40. Sem ele, não se
-presume um saldo adversário atualizado. Nossos lances são automáticos; o tabuleiro
-aparece após cada lance. Não existem confirmações por lance.
+Durante o jogo, digite APENAS o lance adversário, por exemplo e7e5. Os dois
+relógios são mantidos automaticamente pelo programa. Depois de preparar o motor,
+o contador das brancas começa. Nosso contador mede o cálculo; o adversário corre
+enquanto aguardamos seu lance. Cada lance válido troca o turno e adiciona o
+incremento correspondente. Entrada inválida não reinicia nem pausa o relógio.
+Armageddon usa os tempos diferentes e incremento zero da configuração.
 
-Ao final, a partida aguarda o resultado oficial. Informe placar relativo às CORES,
-os DOIS saldos físicos finais e o motivo:
+O tabuleiro e os dois saldos aparecem após cada lance. Os contadores param ao
+terminar a partida, antes de fechar o motor e perguntar sobre exportação TXT.
+Relógios e tempos de cada turno são guardados automaticamente no banco e no log.
+Não existem confirmações por lance nem entrada de minutos/segundos durante o jogo.
 
-    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha resultado --placar 1-0 --nosso-tempo 02:30 --outro-tempo 01:40 --motivo "Mate confirmado pelo árbitro"
+O relógio local troca de turno quando o programa disponibiliza nosso lance ou
+aceita um lance adversário válido. Isso inclui o atraso até digitar o lance;
+não é uma leitura sincronizada do relógio físico, que permanece referência do
+árbitro. Há ajuste excepcional dos saldos após a partida, se a arbitragem exigir.
+
+Ao final, a partida aguarda o resultado oficial. Informe placar relativo às CORES
+e motivo. Os dois saldos já salvos são utilizados automaticamente:
+
+    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha resultado --placar 1-0 --motivo "Mate confirmado pelo árbitro"
     ./.venv/Scripts/python.exe -X utf8 jogar.py campanha jogar
 
 O comando seguinte usa a cor alternada e o novo objetivo. Se houver Armageddon,
@@ -156,7 +169,9 @@ informe a cor SORTEADA PELA ORGANIZAÇÃO:
 
 Reenviar o mesmo resultado não pontua duas vezes. Para corrigir um resultado,
 acrescente --partida ID --corrigir "Justificativa da arbitragem" ao comando
-resultado, com placar, tempos e motivo. A auditoria preserva os dados anteriores.
+resultado, com placar e motivo. Os argumentos opcionais --nosso-tempo e
+--outro-tempo permitem um ajuste oficial dos dois saldos juntos, depois do jogo.
+A auditoria preserva os dados anteriores e identifica a origem dos relógios.
 Correção que invalide um Armageddon realizado deixa a situação em revisão.
 
     ./.venv/Scripts/python.exe -X utf8 jogar.py campanha arbitragem --situacao classificado --justificativa "Decisão oficial da organização"
@@ -244,7 +259,7 @@ SQLite usa transações e revisão para impedir perda de atualização por duas 
     ./.venv/Scripts/python.exe -X utf8 -m pytest -q -p no:cacheprovider tests
     ./.venv/Scripts/python.exe -X utf8 -m pytest -q -p no:cacheprovider tests --motor-real
 
-177 testes aprovados, incluindo cinco integrações com o Stockfish real.
+191 testes aprovados, incluindo seis integrações com o Stockfish real.
 Cobertura: 27 placares possíveis da melhor de três com as duas cores iniciais,
 todos os resultados/cores no Armageddon, desempate pelos relógios, interrupções,
 falhas, correções auditáveis, persistência e conflito de sessões, tabela incompleta,
@@ -252,7 +267,10 @@ provas de necessidade de resultado e mudanças funcionais de lance pelo contexto
 
 A integração em 5+1 disputou DOIS meios-lances reais com quatro threads e 512 MB
 por motor, verificando lances legais, dados técnicos e relógios. As demais
-integrações verificam a comunicação e a antecipação. Uma melhor de três completa
+integrações verificam a comunicação, a antecipação e o jogo manual com entrada
+apenas UCI e os dois contadores automáticos. Os testes determinísticos também
+verificam troca de turno, incremento, expiração e congelamento ao final.
+Uma melhor de três completa
 em 5+1 ainda precisa ser disputada; a validação funcional não prova ganho de força.
 
 ## Origem e licença

@@ -27,7 +27,7 @@ def test_fluxo_manual_cria_joga_salva_pendente_confirma_e_consulta(tmp_path):
         assert (threads, hash_mb) == (4, 512)
         yield motor
 
-    entradas = entrada_programada(["f2f3 04:59 04:58", "g2g4 04:57 04:56", "n"])
+    entradas = entrada_programada(["f2f3", "g2g4", "n"])
     assert cli(tmp_path, "jogar", "--modo", "original", entrada=entradas, conectar=conectar) == 0
     repo = Repositorio(tmp_path / "campanha.sqlite3")
     campanha = repo.carregar()
@@ -35,12 +35,14 @@ def test_fluxo_manual_cria_joga_salva_pendente_confirma_e_consulta(tmp_path):
     assert p["status"] == "aguardando_resultado" and len(p["lances"]) == 4
     assert p["sugestao_placar"] == "0-1" and campanha.resumo()["vitorias"] == 0
     assert motor.consultas[0][1].black_inc == 1
-    assert motor.consultas[0][1].white_clock == 298
-    assert cli(tmp_path, "resultado", "--placar", "0-1", "--nosso-tempo", "04:55",
-               "--outro-tempo", "04:56", "--motivo", "Mate confirmado") == 0
+    assert motor.consultas[0][1].white_clock == pytest.approx(301, abs=.1)
+    assert p["relogios_sistema"]["brancas"] > 300
+    assert p["relogios_sistema"]["pretas"] > 300
+    assert cli(tmp_path, "resultado", "--placar", "0-1", "--motivo", "Mate confirmado") == 0
     campanha = repo.carregar()
     assert campanha.resumo()["vitorias"] == 1 and campanha.resumo()["pontos"] == 3
     assert campanha.confrontos[-1].ativa is None
+    assert campanha.confrontos[-1].concluidas[0]["origem_relogios"] == "sistema"
     saidas = []
     assert cli(tmp_path, "status", saida=saidas.append) == 0
     assert json.loads(saidas[0])["resumo"]["vitorias"] == 1

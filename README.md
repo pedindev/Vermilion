@@ -58,12 +58,17 @@ O Armageddon usa 5 minutos para brancas, 4 para pretas e nenhum incremento,
 conforme a configuração adotada pela equipe. Detalhes e pendências do regulamento
 estão no [manual do projeto](projeto/README.md).
 
-A validação de 26/10/2026 aprovou 177 testes, incluindo cinco integrações com o
+A validação de 26/10/2026 aprovou 191 testes, incluindo seis integrações com o
 Stockfish real. Isso verifica funcionamento; uma campanha completa em 5+1 e ganho
 de força ainda precisam ser avaliados.
 
 O Git inclui os scripts de teste. Ambientes virtuais, caches, bancos das campanhas
 e relatórios gerados ficam apenas no computador e são ignorados pelo Git.
+
+No jogo manual, digite somente o lance adversário em UCI. O sistema mantém os
+dois relógios, troca o turno, aplica o incremento e salva os saldos automaticamente.
+O registro do resultado reutiliza esses saldos. O contador local acompanha os
+eventos do programa, sem leitura sincronizada do relógio físico do árbitro.
 
 ## Licença
 

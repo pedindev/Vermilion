@@ -34,29 +34,75 @@ def segundos(texto):
         raise argparse.ArgumentTypeError("Use segundos ou mm:ss, sem valores negativos.") from None
 
 
+def perguntar_cor(entrada, saida, esperada=None, armageddon=False):
+    if armageddon:
+        saida("Armageddon: informe a cor definida pelo sorteio oficial.")
+    elif esperada is not None:
+        saida(f"Alternância da melhor de três: nesta partida esperamos {'Brancas' if esperada else 'Pretas'}.")
+    while True:
+        texto = entrada("Nossa equipe nesta partida — [1] Brancas ou [2] Pretas? ").strip().lower()
+        if texto in ("1", "brancas"):
+            cor = True
+        elif texto in ("2", "pretas"):
+            cor = False
+        else:
+            saida("Escolha 1 para Brancas ou 2 para Pretas.")
+            continue
+        if esperada is not None and cor != esperada:
+            saida(f"A alternância deste confronto exige {'Brancas' if esperada else 'Pretas'}. Confira a cor antes de começar.")
+            continue
+        return cor
+
+
 def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flush=True), conectar=abrir_motor):
     if not campanha.confrontos:
         raise ValueError("Cadastre o confronto antes de jogar.")
     c = campanha.confrontos[-1]
+    if c.ativa:
+        raise ValueError("Há uma partida pendente; registre seu resultado antes de começar outra.")
+    situacao = c.situacao(campanha.regras)
+    if situacao["status"] not in ("em_disputa", "armageddon"):
+        raise ValueError(f"Não é possível iniciar: {situacao['status']}.")
+    armageddon = situacao["status"] == "armageddon"
     if args.cor_armageddon is not None:
-        if c.situacao(campanha.regras)["status"] != "armageddon":
+        if not armageddon:
             raise ValueError("Sorteio do Armageddon só se aplica após o empate do confronto e dos relógios.")
-        c.cor_armageddon = args.cor_armageddon == "brancas"
+        saida(f"Referência informada no comando: {args.cor_armageddon}. Confirme a cor na pergunta abaixo.")
+    normais = [p for p in c.concluidas if not p["armageddon"]]
+    esperada = None
+    if not armageddon and normais:
+        esperada = c.primeira_cor if len(normais) % 2 == 0 else not c.primeira_cor
+    try:
+        cor = perguntar_cor(entrada, saida, esperada, armageddon)
+    except (EOFError, KeyboardInterrupt):
+        saida("Início cancelado antes de abrir o motor ou iniciar os relógios.")
+        return
+    if armageddon:
+        c.cor_armageddon = cor
+    elif not normais:
+        c.primeira_cor = cor
     contexto = campanha.contexto(c)
     p = c.iniciar(campanha.regras)
+    p["cor_confirmada_na_abertura"] = True
     p["contexto"] = asdict(contexto)
     repo.salvar(campanha)
     saida(f"Confronto: {c.adversario} | {c.fase} | partida {p['numero']} | ID {p['id']}")
     saida("O histórico é salvo automaticamente no banco local. O TXT é exportado com sua autorização.")
 
-    def acompanhar(evento, board, registros, saldo, resultado):
+    def acompanhar(evento, board, registros, saldos, resultado):
         p.update(fen_inicial=board.root().fen(), lances=[m.uci() for m in board.move_stack],
-                 registros=[asdict(r) for r in registros], saldo_estimado=saldo,
+                 registros=[asdict(r) for r in registros], saldo_estimado=saldos[p["cor"]],
+                 saldo_outro_estimado=saldos[not p["cor"]],
+                 relogios_sistema={"brancas": saldos[True], "pretas": saldos[False]},
+                 origem_relogios="sistema",
                  fen_atual=board.fen(), ultima_atualizacao=agora())
         if evento == "fim":
-            p.update(status="aguardando_resultado" if motivo_encerramento(board) else "inconclusiva",
-                     sugestao_placar=board.result() if board.is_checkmate() else "1/2-1/2" if motivo_encerramento(board) else None,
-                     observacao=resultado)
+            sugestao = board.result() if board.is_checkmate() else "1/2-1/2" if motivo_encerramento(board) else None
+            if sugestao is None and min(saldos.values()) <= 0:
+                perdeu = saldos[True] <= 0
+                sugestao = "1/2-1/2" if board.has_insufficient_material(not perdeu) else "0-1" if perdeu else "1-0"
+            p.update(status="aguardando_resultado" if sugestao else "inconclusiva",
+                     sugestao_placar=sugestao, observacao=resultado)
         repo.salvar(campanha)
 
     try:
@@ -70,7 +116,7 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
         if p["status"] == "em_andamento":
             p.update(status="inconclusiva", observacao="Sessão encerrada; resultado oficial pendente.")
             repo.salvar(campanha)
-    saida("Registre o resultado oficial e os dois relógios finais com: jogar.py campanha resultado.")
+    saida("Os dois relógios foram salvos automaticamente. Registre o resultado oficial com: jogar.py campanha resultado.")
     saida(f"Partida pendente: {p['id']} | sugestão do tabuleiro: {p.get('sugestao_placar') or 'nenhuma'}")
 
 
@@ -96,11 +142,11 @@ def criar_parser():
     p.add_argument("--fase", choices=FASES, required=True)
     p.add_argument("--rodada", type=int, default=1)
     p.add_argument("--formato", choices=("unica", "melhor-de-tres"), required=True)
-    p.add_argument("--cor", choices=("brancas", "pretas"), required=True, help="Nossa cor na primeira partida")
+    p.add_argument("--cor", choices=("brancas", "pretas"), help="Referência opcional; a cor será perguntada antes de jogar")
     p.add_argument("--objetivo", choices=OBJETIVOS, default="equilibrado")
     p.add_argument("--justificativa", default="")
     p = comando("jogar", "Jogar a próxima partida do confronto")
-    p.add_argument("--cor-armageddon", choices=("brancas", "pretas"), help="Resultado do sorteio oficial")
+    p.add_argument("--cor-armageddon", choices=("brancas", "pretas"), help="Referência opcional; a cor sorteada será perguntada antes de jogar")
     p.add_argument("--motor", type=Path)
     p.add_argument("--modo", choices=MODOS, default="completo")
     p.add_argument("--threads", type=int, default=THREADS_PADRAO)
@@ -108,8 +154,8 @@ def criar_parser():
     p = comando("resultado", "Registrar ou corrigir resultado confirmado pelo árbitro")
     p.add_argument("--partida", help="ID; por padrão usa a partida pendente")
     p.add_argument("--placar", choices=("1-0", "0-1", "1/2-1/2"), required=True, help="Perspectiva das cores, como no xadrez")
-    p.add_argument("--nosso-tempo", type=segundos, required=True)
-    p.add_argument("--outro-tempo", type=segundos, required=True)
+    p.add_argument("--nosso-tempo", type=segundos, help="Opcional: ajuste pelo relógio oficial")
+    p.add_argument("--outro-tempo", type=segundos, help="Opcional: ajuste pelo relógio oficial")
     p.add_argument("--motivo", required=True)
     p.add_argument("--corrigir", help="Justificativa obrigatória para alterar um resultado anterior")
     p = comando("cancelar", "Cancelar uma tentativa pendente, sem inventar resultado")
@@ -152,7 +198,7 @@ def main(argv=None, entrada=input, saida=partial(print, flush=True), conectar=ab
             return 0
         if args.acao == "confronto":
             c = campanha.novo_confronto(args.adversario, fase=args.fase, rodada=args.rodada,
-                formato=args.formato, primeira_cor=args.cor == "brancas",
+                formato=args.formato, primeira_cor=None if args.cor is None else args.cor == "brancas",
                 objetivo_informado=args.objetivo, justificativa_objetivo=args.justificativa)
             repo.salvar(campanha)
             saida(f"Confronto cadastrado: {c.id}")
@@ -201,12 +247,29 @@ def main(argv=None, entrada=input, saida=partial(print, flush=True), conectar=ab
                 c = next((x for x in campanha.confrontos if any(p["id"] == identificador for p in x.partidas)), None)
                 if c is None:
                     raise ValueError("Partida não encontrada.")
+                p = c.partida(identificador)
+                if (args.nosso_tempo is None) != (args.outro_tempo is None):
+                    raise ValueError("Para um ajuste oficial, informe os dois relógios juntos.")
+                if args.nosso_tempo is not None:
+                    nosso, outro = args.nosso_tempo, args.outro_tempo
+                    origem = "ajuste_oficial_pelo_operador"
+                elif p.get("saldo_nosso_ms") is not None and p.get("saldo_outro_ms") is not None:
+                    nosso, outro = p["saldo_nosso_ms"] / 1000, p["saldo_outro_ms"] / 1000
+                    origem = p.get("origem_relogios", "registro_anterior")
+                elif p.get("relogios_sistema"):
+                    relogios = p["relogios_sistema"]
+                    nosso = relogios["brancas" if p["cor"] else "pretas"]
+                    outro = relogios["pretas" if p["cor"] else "brancas"]
+                    origem = "sistema"
+                else:
+                    raise ValueError("Partida antiga sem relógios automáticos: informe os dois saldos ao registrar o resultado.")
                 dados = dict(placar=args.placar, motivo=args.motivo,
-                             saldo_nosso=args.nosso_tempo, saldo_outro=args.outro_tempo)
+                             saldo_nosso=nosso, saldo_outro=outro, origem="operador")
                 if args.corrigir:
                     c.corrigir(identificador, args.corrigir, **dados)
                 else:
                     c.finalizar(identificador, **dados)
+                p["origem_relogios"] = origem
             repo.salvar(campanha)
             saida(json.dumps(c.situacao(campanha.regras), ensure_ascii=False))
         return 0

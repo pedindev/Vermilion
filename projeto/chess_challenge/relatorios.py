@@ -23,6 +23,9 @@ class RegistroLance:
     pv: str | None = None
     tempo: float | None = None
     detalhes: str = ""
+    saldo_brancas: float | None = None
+    saldo_pretas: float | None = None
+    fonte_tempo: str | None = None
 
 
 def registrar_lance(tabuleiro, lance, cor_equipe, calculado=None):
@@ -61,14 +64,17 @@ def validar_nome(nome):
 
 
 def salvar_relatorio(nome, registros, resultado, cor_equipe, incremento, motor,
-                     pasta=PASTA_RELATORIOS, restante=None, configuracao=""):
+                     pasta=PASTA_RELATORIOS, restante=None, configuracao="", relogios=None):
     nome = validar_nome(nome)
     linhas = [f"Partida: {nome}", f"Nossa equipe: {'Brancas' if cor_equipe else 'Pretas'}",
               f"Motor: {motor}", "Gestão da busca principal: original do Stockfish", configuracao,
               f"Incremento: {incremento:g}s", f"Resultado: {resultado}",
-              f"Nosso último saldo estimado: {restante:.3f}s" if restante is not None else "",
+              f"Nosso saldo final no sistema: {restante:.3f}s" if restante is not None else "",
               "Avaliação na perspectiva das brancas.",
-              "N/D: dado não fornecido. Não temos os dados de busca nem o tempo do adversário.", ""]
+              "Tempos medidos pelo relógio do sistema; não são leitura do relógio físico.",
+              "N/D: dado não fornecido. Não temos os dados de busca internos do adversário.", ""]
+    if relogios is not None:
+        linhas.append(f"Saldos finais do sistema: Brancas {relogios[True]:.3f}s | Pretas {relogios[False]:.3f}s")
     for r in registros:
         tempo = f"{r.tempo:.3f}s" if r.tempo is not None else "N/D"
         linhas.append(f"{r.numero}. {r.autor} | {r.cor} | {r.uci} | "
@@ -77,6 +83,8 @@ def salvar_relatorio(nome, registros, resultado, cor_equipe, incremento, motor,
                       f"PV {r.pv or 'N/D'} | tempo {tempo}")
         if r.detalhes:
             linhas.append(f"  Decisão: {r.detalhes}")
+        if r.saldo_brancas is not None and r.saldo_pretas is not None:
+            linhas.append(f"  Relógios do sistema: Brancas {r.saldo_brancas:.3f}s | Pretas {r.saldo_pretas:.3f}s")
     return salvar_texto(nome, "\n".join(linhas) + "\n", pasta)
 
 
