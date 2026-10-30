@@ -5,6 +5,24 @@ import sys
 from time import monotonic, sleep
 
 
+def ler_tempo(texto):
+    """Segundos ou mm:ss, incluindo frações decimais."""
+    texto = texto.strip().replace(",", ".")
+    if ":" in texto:
+        partes = texto.split(":")
+        if len(partes) != 2 or not partes[0].isdigit():
+            raise ValueError("Use segundos ou mm:ss.")
+        minutos, segundos = int(partes[0]), float(partes[1])
+        if not 0 <= segundos < 60:
+            raise ValueError("Segundos devem estar entre 0 e 60.")
+        valor = minutos * 60 + segundos
+    else:
+        valor = float(texto)
+    if not isfinite(valor) or valor < 0:
+        raise ValueError("Relógio deve ser finito e não negativo.")
+    return valor
+
+
 class TempoEsgotado(Exception):
     def __init__(self, cor):
         self.cor = cor
@@ -19,6 +37,8 @@ class RelogioPartida:
         self._saldos = {True: float(brancas), False: float(pretas)}
         self.incremento, self.agora = incremento, agora
         self.ativo, self.inicio = None, None
+        self.gasto_antes_ajuste = 0
+        self.fonte = "relogio_do_sistema"
 
     def iniciar(self, cor=True):
         if self.ativo is not None:
@@ -26,6 +46,19 @@ class RelogioPartida:
         if self._saldos[cor] <= 0:
             raise TempoEsgotado(cor)
         self.ativo, self.inicio = cor, self.agora()
+        self.gasto_antes_ajuste = 0
+
+    def ajustar(self, brancas, pretas):
+        """Sincronização manual com o relógio físico, sem trocar turno nem dar incremento."""
+        if any(not isfinite(v) or v < 0 for v in (brancas, pretas)):
+            raise ValueError("Informe os dois saldos físicos, finitos e não negativos.")
+        if self.ativo is None:
+            raise ValueError("O relógio não está em andamento.")
+        instante = self.agora()
+        self.gasto_antes_ajuste += instante - self.inicio
+        self._saldos = {True: float(brancas), False: float(pretas)}
+        self.inicio = instante
+        self.fonte = "sistema_com_ajuste_fisico"
 
     def saldos(self):
         valores = dict(self._saldos)
@@ -37,13 +70,15 @@ class RelogioPartida:
         if self.ativo is None or self.ativo != cor:
             raise ValueError("Lance não corresponde ao relógio ativo.")
         instante = self.agora()
-        gasto = instante - self.inicio
-        self._saldos[cor] = max(0, self._saldos[cor] - gasto)
+        trecho = instante - self.inicio
+        gasto = self.gasto_antes_ajuste + trecho
+        self._saldos[cor] = max(0, self._saldos[cor] - trecho)
         if self._saldos[cor] <= 0:
             self.ativo, self.inicio = None, None
             raise TempoEsgotado(cor)  # Incremento nunca resgata um relógio zerado.
         self._saldos[cor] += self.incremento
         self.ativo, self.inicio = not cor, instante
+        self.gasto_antes_ajuste = 0
         return gasto
 
     def parar(self):
@@ -54,8 +89,10 @@ class RelogioPartida:
 
 def formatar_relogios(saldos):
     def formato(valor):
-        minutos, segundos = divmod(int(max(0, valor)), 60)
-        return f"{minutos:02d}:{segundos:02d}"
+        total_ms = round(max(0, valor) * 1000)
+        minutos, restante = divmod(total_ms, 60_000)
+        segundos, ms = divmod(restante, 1000)
+        return f"{minutos:02d}:{segundos:02d}.{ms:03d}"
     return f"Relógios — Brancas: {formato(saldos[True])} | Pretas: {formato(saldos[False])}"
 
 

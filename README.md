@@ -1,8 +1,9 @@
 # Chess Challenge — seletor de lances orientado à campanha
 
 Projeto em Python para jogar localmente com Stockfish 19 e considerar o contexto
-do campeonato na seleção de lances: classificação, melhor de três, relógios e
-Armageddon. A melhoria é experimental; ganho competitivo ainda não foi demonstrado.
+do confronto na seleção de lances: resultados, melhor de três, relógios e
+Armageddon. Não usa pontuação ou tabela para decidir jogadas. A melhoria é
+experimental; ganho competitivo ainda não foi demonstrado.
 
 ## Conteúdo
 
@@ -58,7 +59,7 @@ O Armageddon usa 5 minutos para brancas, 4 para pretas e nenhum incremento,
 conforme a configuração adotada pela equipe. Detalhes e pendências do regulamento
 estão no [manual do projeto](projeto/README.md).
 
-A validação de 26/10/2026 aprovou 191 testes, incluindo seis integrações com o
+A validação de 30/10/2026 aprovou 238 testes, incluindo sete integrações com o
 Stockfish real. Isso verifica funcionamento; uma campanha completa em 5+1 e ganho
 de força ainda precisam ser avaliados.
 
@@ -69,6 +70,14 @@ No jogo manual, digite somente o lance adversário em UCI. O sistema mantém os
 dois relógios, troca o turno, aplica o incremento e salva os saldos automaticamente.
 O registro do resultado reutiliza esses saldos. O contador local acompanha os
 eventos do programa, sem leitura sincronizada do relógio físico do árbitro.
+É possível ajustar os dois saldos durante o jogo com o comando opcional
+`relogios TEMPO_BRANCAS TEMPO_PRETAS`, ou informar os saldos oficiais no resultado.
+A criação da campanha pergunta a duração prevista da partida; essa informação
+não altera o ritmo de 15+10 nem impõe um corte à análise.
+
+O jogo manual no modo completo também usa um repertório local preparado com
+Stockfish, até dez meios-lances. Ao sair da linha conhecida, volta à análise
+normal. Os detalhes e o comando de preparação estão no manual do projeto.
 
 ## Licença
 

@@ -10,9 +10,7 @@ from .motor import LanceCalculado
 VALORES = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 0}
 
 
-def final_depois(board, lance):
-    depois = board.copy(stack=True)
-    depois.push(lance)
+def final_posicao(depois):
     if depois.is_checkmate():
         return "V"
     if (depois.is_stalemate() or depois.is_insufficient_material()
@@ -21,15 +19,25 @@ def final_depois(board, lance):
     return None
 
 
+def final_depois(board, lance):
+    depois = board.copy(stack=True)
+    depois.push(lance)
+    return final_posicao(depois)
+
+
 def final_qualificante(board, contexto):
     """Uma conclusão comprovada pelas regras dispensa heurística e busca extra."""
     empate = None
+    depois = board.copy(stack=True)
     for lance in board.legal_moves:
-        fim = final_depois(board, lance)
-        if fim == "V":
-            return lance, "Mate imediato verificado no tabuleiro."
-        if fim == "E" and contexto.empate_classifica:
-            empate = lance
+        depois.push(lance)
+        try:
+            if depois.is_checkmate():
+                return lance, "Mate imediato verificado no tabuleiro."
+            if contexto.empate_classifica and final_posicao(depois) == "E":
+                empate = lance
+        finally:
+            depois.pop()
     if empate is not None:
         return empate, "Empate imediato garante a classificação pelo contexto do confronto."
     return None, None
@@ -46,13 +54,14 @@ def atributos(board, lance):
         zona = chess.SquareSet(chess.BB_KING_ATTACKS[rei]) | chess.SquareSet([rei])
         return sum(len(depois.attackers(atacante, casa)) for casa in zona)
 
-    expostos = sum(VALORES[p.piece_type] for casa, p in depois.piece_map().items()
+    pecas = depois.piece_map()
+    expostos = sum(VALORES[p.piece_type] for casa, p in pecas.items()
                    if p.color == cor and depois.is_attacked_by(not cor, casa)
                    and not depois.is_attacked_by(cor, casa))
     return dict(pressao_nosso_rei=pressao(depois.king(cor), not cor),
                 pressao_rei_adversario=pressao(depois.king(not cor), cor),
-                material_total=sum(VALORES[p.piece_type] for p in depois.piece_map().values()),
-                pecas_nossas_expostas=expostos, final=final_depois(board, lance))
+                material_total=sum(VALORES[p.piece_type] for p in pecas.values()),
+                pecas_nossas_expostas=expostos, final=final_posicao(depois))
 
 
 def ordenar(board, alternativas, original, contexto, cp_original):

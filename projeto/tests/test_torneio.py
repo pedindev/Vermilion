@@ -13,7 +13,8 @@ import testar_campeonato as automatico
 
 def cli(tmp_path, *args, **kwargs):
     return main([args[0], "--arquivo", str(tmp_path / "campanha.sqlite3"), *args[1:]],
-                saida=kwargs.pop("saida", lambda _: None), **kwargs)
+                saida=kwargs.pop("saida", lambda _: None),
+                entrada=kwargs.pop("entrada", entrada_programada([""])), **kwargs)
 
 
 def test_fluxo_manual_cria_joga_salva_pendente_confirma_e_consulta(tmp_path):
@@ -27,7 +28,7 @@ def test_fluxo_manual_cria_joga_salva_pendente_confirma_e_consulta(tmp_path):
         assert (threads, hash_mb) == (4, 512)
         yield motor
 
-    entradas = entrada_programada(["f2f3", "g2g4", "n"])
+    entradas = entrada_programada(["2", "f2f3", "g2g4", "n"])
     assert cli(tmp_path, "jogar", "--modo", "original", entrada=entradas, conectar=conectar) == 0
     repo = Repositorio(tmp_path / "campanha.sqlite3")
     campanha = repo.carregar()
@@ -40,7 +41,7 @@ def test_fluxo_manual_cria_joga_salva_pendente_confirma_e_consulta(tmp_path):
     assert p["relogios_sistema"]["pretas"] > 300
     assert cli(tmp_path, "resultado", "--placar", "0-1", "--motivo", "Mate confirmado") == 0
     campanha = repo.carregar()
-    assert campanha.resumo()["vitorias"] == 1 and campanha.resumo()["pontos"] == 3
+    assert campanha.resumo()["vitorias"] == 1 and "pontos" not in campanha.resumo()
     assert campanha.confrontos[-1].ativa is None
     assert campanha.confrontos[-1].concluidas[0]["origem_relogios"] == "sistema"
     saidas = []
@@ -56,7 +57,7 @@ def test_interrupcao_manual_preserva_historico_sem_inventar_resultado(tmp_path):
     def conectar(*args):
         yield MotorSimulado(["e2e4"])
 
-    assert cli(tmp_path, "jogar", "--modo", "original", entrada=entrada_programada([EOFError()]), conectar=conectar) == 0
+    assert cli(tmp_path, "jogar", "--modo", "original", entrada=entrada_programada(["1", EOFError()]), conectar=conectar) == 0
     repo = Repositorio(tmp_path / "campanha.sqlite3")
     campanha = repo.carregar()
     assert campanha.confrontos[-1].ativa["lances"] == ["e2e4"]
@@ -66,19 +67,46 @@ def test_interrupcao_manual_preserva_historico_sem_inventar_resultado(tmp_path):
     assert repo.carregar().confrontos[-1].ativa is None
 
 
-def test_cli_configura_regras_importa_tabela_e_nao_sobrescreve(tmp_path):
-    assert cli(tmp_path, "criar", "--equipe", "Nossa") == 0
+def test_cli_configura_duracao_sem_mudar_relogios_e_nao_sobrescreve(tmp_path):
+    assert cli(tmp_path, "criar", "--equipe", "Nossa", entrada=entrada_programada(["abc", "0", "25"])) == 0
     assert cli(tmp_path, "criar", "--equipe", "Outra") == 1
-    assert cli(tmp_path, "regras", "--rodadas", "5", "--vagas", "8", "--equipes", "32",
-               "--classificacao-por-pontos", "sim", "--tres-obrigatorias", "sim") == 0
-    tabela = tmp_path / "tabela.json"
-    tabela.write_text(json.dumps([dict(equipe="Nossa", posicao=4, pontos=7)]), encoding="utf-8")
-    assert cli(tmp_path, "tabela", "--importar", str(tabela), "--rodada", "3") == 0
     c = Repositorio(tmp_path / "campanha.sqlite3").carregar()
-    assert c.resumo()["posicao_oficial"] == 4
-    assert c.resumo()["pontos_oficiais"] == 7
+    assert c.regras.duracao_prevista_minutos == 25
+    assert cli(tmp_path, "regras", "--duracao-prevista", "30", "--tres-obrigatorias", "sim") == 0
+    c = Repositorio(tmp_path / "campanha.sqlite3").carregar()
+    assert c.regras.duracao_prevista_minutos == 30
+    assert (c.regras.tempo, c.regras.incremento) == (900, 10)
+    assert not {"pontos", "posicao_oficial"} & c.resumo().keys()
     assert not c.regras.encerrar_ao_decidir
     assert c.regras.incremento_armageddon == 0
+
+
+def test_criacao_cancelada_nao_cria_banco(tmp_path):
+    assert cli(tmp_path, "criar", "--equipe", "Nossa", entrada=entrada_programada([EOFError()])) == 0
+    assert not (tmp_path / "campanha.sqlite3").exists()
+
+
+def test_campanha_guarda_ajuste_fisico_com_fracoes_sem_perder_lances(tmp_path):
+    cli(tmp_path, "criar", "--equipe", "Nossa", "--duracao-prevista", "25")
+    cli(tmp_path, "confronto", "--adversario", "Outra", "--formato", "unica")
+    motor = MotorSimulado(["e7e5"])
+    @contextmanager
+    def conectar(*args):
+        yield motor
+    cli(tmp_path, "jogar", "--modo", "original", conectar=conectar,
+        entrada=entrada_programada(["2", "relogios 14:20.125 13:40.250", "e2e4", EOFError()]))
+    repo = Repositorio(tmp_path / "campanha.sqlite3")
+    p = repo.carregar().confrontos[-1].ativa
+    assert p["lances"] == ["e2e4", "e7e5"] and len(p["registros"]) == 2
+    assert p["ajustes_relogio"][0]["brancas"] == pytest.approx(860.125, abs=.02)
+    assert p["origem_relogios"] == "sistema_com_ajuste_fisico"
+    cli(tmp_path, "resultado", "--placar", "1/2-1/2", "--motivo", "Confirmado pelo árbitro",
+        "--nosso-tempo", "10.125", "--outro-tempo", "12.250")
+    c = repo.carregar().confrontos[-1]
+    assert c.concluidas[0]["saldo_nosso_ms"] == 10125
+    assert c.concluidas[0]["saldo_outro_ms"] == 12250
+    assert c.concluidas[0]["origem_relogios"] == "ajuste_oficial_pelo_operador"
+    assert c.situacao(repo.carregar().regras)["status"] == "armageddon"
 
 
 @pytest.mark.parametrize("texto", ["nan", "inf", "-1", "1:60", "1:2:3", "abc"])

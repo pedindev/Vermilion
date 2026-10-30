@@ -1,282 +1,172 @@
-# Chess Challenge — seletor de lances orientado à campanha
+# Chess Challenge — campanha e partidas locais
 
-Programa local em Python com Stockfish 19. O seletor experimental considera a
-campanha para escolher alternativas verificadas pelo motor. Autoria funcional e
-ganho competitivo são questões distintas: não demonstramos ganho de força ou Elo.
+Python com Stockfish 19, quatro threads e 512 MB de hash por motor.
+A seleção considera o confronto atual, seus resultados e o Armageddon.
+Não usamos pontuação, ELO ou posição em tabela para escolher lances.
 
-## Organização
+## Jogar no campeonato
 
-    jogar.py                         entrada única do jogo manual
-    chess_challenge/
-      campanha.py                    regras, confrontos, resultados, tabela e SQLite
-      estrategia.py                  critérios de seleção conforme a campanha
-      inteligencia.py                antecipação, busca e verificação
-      motor.py                       executável Stockfish, recursos e UCI
-      partida.py                     turnos, entrada e tabuleiro no terminal
-      relogio.py                     dois relógios automáticos e entrada com prazo
-      torneio.py                     operação da campanha
-      relatorios.py                  registros técnicos e exportação TXT autorizada
-    tests/
-      test_*.py                      testes determinísticos e integrações
-      testes de campeonato/
-        testar_campeonato.py          ensaios automáticos com relógio real
-        test_campeonato.py            testes do ambiente automático
-        relatórios/                  TXT autorizados e bancos dos ensaios
-    dados/                           banco da campanha real, criado no primeiro uso
-    relatórios de partidas/          TXT criados quando autorizados
-
-O padrão é quatro threads e 512 MB de hash POR MOTOR. A GPU não é utilizada.
-Stockfish administra a busca principal pelos relógios UCI. Antecipação é análise
-especulativa da posição prevista, com histórico completo e reaproveitamento da
-tabela de transposição; não prometemos continuidade ponderhit. Só um trabalhador
-controla cada processo por vez. Não há biblioteca nova: SQLite é local.
-
-## Regras adotadas
-
-O FAQ ../documentos/rules.txt prevalece nos conflitos com o edital antigo.
-
-- Ritmo normal oficial: 15 minutos +10 segundos por lance.
-- Ambiente automático de teste: 5 minutos +1 segundo por lance.
-- Armageddon: brancas 5 minutos, pretas 4 minutos, SEM INCREMENTO por orientação
-  da equipe. O FAQ informa os tempos, mas não explicita o incremento. Essa origem
-  fica registrada, em vez de atribuir ao documento uma definição ausente.
-- Empate no Armageddon classifica as pretas. O resultado da partida continua empate.
-- Melhor de três: cores alternadas; a terceira repete a primeira. Um placar
-  matematicamente decidido pode encerrar o confronto. A configuração
-  --tres-obrigatorias sim exige os três jogos, caso seja a orientação oficial.
-- Empate após três jogos: maior soma dos saldos finais das duas equipes.
-  Igualdade de placar e soma leva ao Armageddon. Relógio ausente deixa o desempate
-  pendente, sem presumir igualdade.
-- O sorteio das cores vem da organização no jogo real; só o ensaio sorteia.
-- Tripla repetição e 50 lances efetivamente atingidos são automáticos. Não se
-  declara empate apenas porque um lance futuro poderia satisfazer a regra.
-- Mate, afogamento e material insuficiente são reconhecidos. Tabuleiro físico,
-  relógios físicos e árbitro são a referência para resultado e correções.
-- Sem rede, APIs, opening book ou tablebases. Syzygy fica sem caminho, limitado a
-  cinco peças. A antecipação é permitida.
-- Anuncie UCI, obtenha a repetição adversária, mova a peça e acione o relógio físico.
-  O programa não ouve o anúncio nem opera o relógio.
-- Logs registram lance, autor, cor, profundidade, nós, avaliação, PV e tempo.
-  Dados internos adversários indisponíveis no modo manual aparecem como N/D.
-- Falha do software durante um confronto automático é derrota conforme o edital.
-  Interrupção pelo operador e limite de lances do ensaio são inconclusivos.
-
-Ainda dependem de confirmação: quantidade de rodadas/vagas, formato de cada fase,
-prioridade entre pontos e ELO e fórmula de ranking. Configuramos os valores
-confirmados e importamos a tabela oficial, sem inventar uma classificação.
-Inscrição, composição da equipe, entrega do Git e arbitragem são procedimentos da
-organização, e não tarefas que o programa possa executar automaticamente.
-
-## Teste automático de 5+1
-
-No Git Bash, comando completo:
-
-    cd /d/XADREZ/projeto && ./.venv/Scripts/python.exe -X utf8 "tests/testes de campeonato/testar_campeonato.py" --formato melhor-de-tres --tempo 300 --incremento 1 --threads 4 --hash 512
-
-Esse já é o padrão: nosso seletor completo contra Stockfish original, com recursos
-iguais, começando da posição inicial. São até três partidas normais e Armageddon
-quando exigido pelos desempates. O confronto pode terminar antes pelo placar.
-O teste usa o MESMO modelo de campanha do jogo manual. Mostra objetivo, lance,
-tempo, resultado e situação do confronto. Não é necessário digitar jogadas.
-
-No Windows, separa núcleos físicos e seus irmãos SMT por processo, alternando os
-grupos por partida. Isso reduz concorrência, mas não equivale a dois notebooks.
---afinidade desligada desativa. --latencia 1 simula um segundo de operação física
-por lance, cobrado de ambos antes do incremento.
-
-O histórico é salvo por lance num banco novo em:
-tests/testes de campeonato/relatórios/campanhas/
-O caminho aparece no início. O TXT legível só é criado ao responder s e informar
-um nome no final. Ctrl+C encerra trabalhadores e motores e preserva a tentativa
-como inconclusiva. Um banco com partida pendente exige revisão explícita.
-
---campanha "caminho/ensaio.sqlite3" escolhe o banco. Um arquivo existente continua
-o confronto entre jogos concluídos, com a mesma configuração.
-O limite padrão de 300 lances completos é uma proteção do ensaio, não regra do
-campeonato: atingi-lo não produz empate nem classificação.
-
-Outros ensaios, a partir de /d/XADREZ/projeto:
-
-    # Partida única da fase classificatória, 5+1:
-    ./.venv/Scripts/python.exe -X utf8 "tests/testes de campeonato/testar_campeonato.py" --formato classificacao
-
-    # Exercitar diretamente o Armageddon, nossa equipe de pretas, 5/4 sem incremento:
-    ./.venv/Scripts/python.exe -X utf8 "tests/testes de campeonato/testar_campeonato.py" --formato armageddon --cor-armageddon pretas
-
-    # Medir o seletor contra um adversário que também antecipa:
-    ./.venv/Scripts/python.exe -X utf8 "tests/testes de campeonato/testar_campeonato.py" --adversario ponderacao
-
-    # Comparação em pares, cores invertidas e aberturas de até dez meios-lances:
-    ./.venv/Scripts/python.exe -X utf8 "tests/testes de campeonato/testar_campeonato.py" --formato pares --pares 3
-
-    # Ritmo oficial:
-    ./.venv/Scripts/python.exe -X utf8 "tests/testes de campeonato/testar_campeonato.py" --tempo 900 --incremento 10
-
-O ensaio direto de Armageddon prepara três empates sintéticos com saldos iguais.
-Eles são identificados no banco e NÃO entram no resumo de jogos efetivamente
-disputados. Não são evidência de força.
-
-Uma partida 5+1 pode durar mais de dez minutos devido aos incrementos. Resultados
-nesse ritmo não equivalem aos de 15+10. Mais vitórias não significam necessariamente
-mais classificações: avalie confrontos completos, relógios e critérios de desempate.
-
-## Preparar a campanha real
-
-Todos os comandos usam por padrão dados/campanha.sqlite3.
---arquivo "outro.sqlite3", DEPOIS do comando, permite campanhas separadas.
+No Git Bash:
 
     cd /d/XADREZ/projeto
+    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha criar --arquivo "dados/campeonato.sqlite3" --equipe "NOSSA EQUIPE"
 
-    # Executar uma vez. Um arquivo com campanha existente não é sobrescrito.
-    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha criar --equipe "Nome da nossa equipe"
+Crie a campanha uma vez. O programa pergunta a duração total prevista de cada
+partida. Por exemplo, 25 minutos é uma referência de agenda: não corta a busca
+nem altera os relógios de 15 minutos por equipe +10 segundos por lance.
+Enter deixa a duração não informada. Para preencher sem pergunta, use
+`--duracao-prevista 25`.
 
-    # Cadastrar o pareamento informado pela organização:
-    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha confronto --adversario "Equipe adversária" --fase semifinal --rodada 1 --formato melhor-de-tres --cor brancas
+Cadastre um confronto em um dos formatos:
 
-    # Jogar a próxima partida; cor e relógios vêm do confronto:
-    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha jogar
+    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha confronto --arquivo "dados/campeonato.sqlite3" --adversario "OUTRA EQUIPE" --formato unica
+    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha confronto --arquivo "dados/campeonato.sqlite3" --adversario "OUTRA EQUIPE" --fase final --formato melhor-de-tres
 
-    # Consultar a campanha e IDs pendentes:
-    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha status
+Use somente o cadastro correspondente ao pareamento. Fase e rodada são
+identificações opcionais. Fases: classificacao, oitavas, quartas, semifinal,
+final e terceiro-lugar. A rodada segue a sequência de confrontos, ou pode ser
+informada com `--rodada`. Não representam pontuação ou posição em tabela.
 
-Durante o jogo, digite APENAS o lance adversário, por exemplo e7e5. Os dois
-relógios são mantidos automaticamente pelo programa. Depois de preparar o motor,
-o contador das brancas começa. Nosso contador mede o cálculo; o adversário corre
-enquanto aguardamos seu lance. Cada lance válido troca o turno e adiciona o
-incremento correspondente. Entrada inválida não reinicia nem pausa o relógio.
-Armageddon usa os tempos diferentes e incremento zero da configuração.
+Inicie cada partida, inclusive a próxima da melhor de três e o Armageddon:
 
-O tabuleiro e os dois saldos aparecem após cada lance. Os contadores param ao
-terminar a partida, antes de fechar o motor e perguntar sobre exportação TXT.
-Relógios e tempos de cada turno são guardados automaticamente no banco e no log.
-Não existem confirmações por lance nem entrada de minutos/segundos durante o jogo.
+    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha jogar --arquivo "dados/campeonato.sqlite3"
 
-O relógio local troca de turno quando o programa disponibiliza nosso lance ou
-aceita um lance adversário válido. Isso inclui o atraso até digitar o lance;
-não é uma leitura sincronizada do relógio físico, que permanece referência do
-árbitro. Há ajuste excepcional dos saldos após a partida, se a arbitragem exigir.
+A cor é perguntada antes de começar. Na melhor de três o programa verifica a
+alternância; no Armageddon, informe a cor sorteada pela organização.
+Nossos lances são aplicados automaticamente. Digite apenas o lance adversário
+em UCI, como `e7e5`; o tabuleiro aparece após cada lance.
 
-Ao final, a partida aguarda o resultado oficial. Informe placar relativo às CORES
-e motivo. Os dois saldos já salvos são utilizados automaticamente:
+## Relógio físico e registro do resultado
 
-    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha resultado --placar 1-0 --motivo "Mate confirmado pelo árbitro"
-    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha jogar
+O contador local funciona automaticamente. Ele não lê o relógio físico.
+Quando necessário, no campo de entrada do adversário, ajuste os dois saldos:
 
-O comando seguinte usa a cor alternada e o novo objetivo. Se houver Armageddon,
-informe a cor SORTEADA PELA ORGANIZAÇÃO:
+    relogios 14:30.250 14:05.125
 
-    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha jogar --cor-armageddon pretas
+A ordem é SEMPRE brancas e pretas. O ajuste não joga, não troca a vez e não
+adiciona incremento. O sistema registra o ajuste e continua contando.
+O relógio físico e a decisão do árbitro são a referência oficial; o contador
+local pode diferir pelo tempo de anunciar, mover peças e digitar.
 
-Reenviar o mesmo resultado não pontua duas vezes. Para corrigir um resultado,
-acrescente --partida ID --corrigir "Justificativa da arbitragem" ao comando
-resultado, com placar e motivo. Os argumentos opcionais --nosso-tempo e
---outro-tempo permitem um ajuste oficial dos dois saldos juntos, depois do jogo.
-A auditoria preserva os dados anteriores e identifica a origem dos relógios.
-Correção que invalide um Armageddon realizado deixa a situação em revisão.
+Após a partida, registre o placar por COR:
 
-    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha arbitragem --situacao classificado --justificativa "Decisão oficial da organização"
+    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha resultado --arquivo "dados/campeonato.sqlite3" --placar 1-0 --motivo "Mate confirmado"
 
-Esse comando registra classificação oficial sem inventar vitória numa partida
-empatada. Não deve substituir a informação da arbitragem por uma suposição.
+Placar: `1-0` = vitória das brancas; `0-1` = vitória das pretas;
+`1/2-1/2` = empate. O programa reaproveita os saldos locais.
+Para registrar os saldos do relógio físico, acrescente ambos os argumentos:
 
-campanha cancelar --justificativa "Ensaio cancelado" cancela uma tentativa pendente
-sem contabilizar resultado. Na competição, falha não dá direito automático a
-retomar: registre a decisão oficial. Persistência não altera essa regra.
+    --nosso-tempo 02:10.125 --outro-tempo 01:40.250
 
-Para treino manual em 5+1, crie uma campanha separada com criar --teste e use seu
---arquivo em todos os comandos. Executar jogar.py sem campanha abre uma partida
-isolada em 15+10, sem histórico do confronto.
+Esses dois argumentos são relativos à NOSSA equipe e ao adversário.
+São opcionais, aceitam frações de segundo e prevalecem sobre os saldos locais.
+Uma correção posterior usa `--partida ID --corrigir "Justificativa"`.
+O banco armazena os saldos finais com precisão de milissegundos.
 
-## Tabela oficial e definições pendentes
+    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha status --arquivo "dados/campeonato.sqlite3"
 
-Importe um JSON local com uma linha por equipe. Campos obrigatórios: equipe,
-posicao e pontos. Outros campos oficiais podem ser mantidos. Exemplo:
+## Formatos e desempates
 
-    [
-      {"equipe": "Nome da nossa equipe", "posicao": 2, "pontos": 4},
-      {"equipe": "Outra equipe", "posicao": 1, "pontos": 6}
-    ]
+- Partida única empatada: um Armageddon, em qualquer fase.
+- Melhor de três: nenhum Armageddon entre as partidas. Placar decidido pode
+  encerrar o confronto; `campanha regras --tres-obrigatorias sim` exige três jogos.
+- Empate no placar depois das três: vence a maior soma dos tempos finais.
+  Se também forem iguais, um Armageddon. Saldos ausentes deixam a decisão pendente.
+- Armageddon: brancas com 5 minutos, pretas com 4, sem incremento.
+  Empate dá o confronto às pretas; o resultado da partida continua registrado
+  como empate. A cor vem do sorteio oficial.
+- Tripla repetição e regra dos 50 lances atingidas são automáticas.
+- A duração prevista na agenda não decide resultado nem interrompe cálculos.
+- Na classificação, perder um confronto não impede cadastrar o seguinte.
+  Nas eliminatórias, é necessário respeitar a eliminação ou uma decisão oficial.
 
-    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha tabela --importar "tabela.json" --rodada 2 --fonte "Organização"
-    ./.venv/Scripts/python.exe -X utf8 jogar.py campanha regras --rodadas 5 --vagas 8 --equipes 32
+Essas definições incorporam as orientações da equipe de 30/10/2026.
+O FAQ original permanece em `../documentos/rules.txt`.
 
-Os números são EXEMPLOS, não resolução das inconsistências do edital.
-A posição e os pontos oficiais são separados dos pontos do nosso histórico.
-Nenhuma fórmula ELO é inventada. Se a organização confirmar que pontos determinam
-as vagas, ative campanha regras --classificacao-por-pontos sim. Só com essa
-confirmação, tabela COMPLETA da rodada anterior, quantidade de equipes, rodadas e
-vagas definidos, o sistema usa limites conservadores para provar empate suficiente
-ou vitória necessária. Empate em pontos não é vaga garantida sem critério oficial.
+## O que é salvo
 
-Sem prova matemática, um objetivo pode ser informado ao cadastrar o confronto:
---objetivo buscar_vitoria --justificativa "Situação informada pela organização".
-Isso não é rotulado como garantia matemática.
+SQLite guarda adversário, fase/rodada, formato, cores, vitórias/empates/derrotas,
+lances, posições, relógios, ajustes físicos, análises e correções.
+Resultado de partida e vencedor do confronto são informações separadas.
 
-Ritmos, pontuação e número de jogos obrigatórios são configuráveis em regras.
-Confrontos preservam a configuração usada. Não altere regras no meio de um
-confronto; os ajustes valem para os seguintes.
+O histórico é salvo automaticamente por lance. O TXT só é gerado após
+autorização e nome informado pelo operador, em `relatórios de partidas/`.
+Registros antigos de tabelas e pontuação são preservados como dados legados,
+sem aparecer no resumo ou participar das decisões. Não é necessário apagar bancos.
 
-## Decisões orientadas à campanha
+Interrupção não inventa empate nem retoma uma partida automaticamente.
+Use `campanha cancelar --justificativa "Motivo"` para uma tentativa de teste;
+na competição, registre a decisão do árbitro.
 
-O objetivo distingue confronto aberto, recuperação do placar, proteção de vantagem
-e empate que garante classificação. No Armageddon, brancas precisam vencer e
-pretas podem classificar empatando. Na terceira partida com placar igual, os
-relógios conhecidos e saldos acumulados orientam o objetivo a cada turno.
-Saldo corrente estimado não é tratado como classificação assegurada.
+## Busca, aberturas e eficiência
 
-1. Mate imediato ou empate imediato que comprovadamente classifica são identificados
-   pelo tabuleiro e histórico. O log marca fonte regra comprovada, profundidade
-   zero e zero nós, sem atribuir uma busca fictícia ao Stockfish.
-2. Nos demais casos a busca principal continua nativa, por relógios UCI.
-3. Alternativas antecipadas são usadas apenas se posição E histórico coincidirem.
-   Sem candidatos, objetivos diferentes de equilibrado podem receber uma sondagem
-   curta de até três variantes.
-4. Original e alternativas passam por verificação atual com avaliações exatas,
-   sem bounds provisórios e profundidade mínima 12. Cada checagem recebe até 0,3s
-   e 1% do saldo disponível. Esse trabalho adicional custa tempo real.
-5. Buscar vitória considera pressão perto do rei adversário e possibilidades de
-   continuar jogando. Proteger considera segurança do nosso rei, peças expostas e
-   simplificação. São heurísticas estáticas experimentais.
-6. Tolerância estimada de 10cp, ou 20cp ao buscar vitória. Com vantagem >=150cp,
-   prioriza conversão e tolerância 10cp. A referência considera também a busca
-   principal, para não autorizar facilmente uma piora grande numa verificação curta.
-   Isso não prova equivalência entre lances.
-7. Mate indicado pelo motor é preservado. Abaixo de cinco segundos não há busca
-   adicional. Sem dados suficientes, mantém-se a preferência original.
+O Stockfish continua administrando a busca pelos relógios UCI: não acrescentamos
+limite de segundos, profundidade ou nós à busca principal. A GPU não é utilizada.
 
-original preserva o algoritmo nativo com relógios/recursos iguais.
-ponderacao antecipa, sem seletor. completo usa a política da campanha.
-Partidas isoladas e comparação em pares, sem contexto, preservam o seletor anterior.
-A diferença entre defesas não é medida comprovada de dificuldade prática.
+No modo completo, o repertório local contém 61 posições preparadas offline com
+Stockfish 19: até dois milhões de nós por posição, com profundidades observadas
+de 18 a 24. O primeiro lance preparado é e2e4. Há respostas para algumas linhas
+de e5, Siciliana, Francesa, Caro-Kann e inícios com d4, c4 e Cf3.
 
-O banco guarda contexto, lances, dados técnicos e decisões. Nas trocas, os dados
-da busca principal ficam separados dos da verificação do lance escolhido.
-Não confunda essas contagens para comparar profundidade ou nós/segundo.
-SQLite usa transações e revisão para impedir perda de atualização por duas sessões.
+Só usa o repertório se posição e histórico coincidirem, até dez meios-lances.
+Ao sair da preparação, a análise normal assume até o fim. O livro não cobre
+todas as variantes. Arquivo ausente ou inválido também leva à busca normal.
+O log marca `abertura preparada`, com zero nós/profundidade da busca atual;
+a análise offline fica separada. Isso não é contado como troca autoral.
 
-## Validação — 26/10/2026
+`--sem-abertura` desativa o repertório no jogo e nos ensaios automáticos.
+Os modos original e ponderacao não usam livro. Para refazer a preparação
+explicitamente, antes do evento e fora de uma partida:
+
+    ./.venv/Scripts/python.exe -X utf8 -m chess_challenge.aberturas
+
+O seletor continua verificando alternativas próximas com o Stockfish e
+considerando o placar do confronto e o objetivo do Armageddon.
+Antecipação usa um trabalhador por motor, parado antes da busca do nosso turno.
+
+O refino reaproveita o tabuleiro nas verificações, evita recriar registros
+anteriores e mantém cache limitado de históricos já validados. Mudança de
+histórico ou FEN exige nova validação. A gravação SQLite continua transacional
+e detecta alterações concorrentes por outra sessão.
+
+Em uma medição local com seis posições, verificações/atributos passaram de
+aproximadamente 30 ms para 7 ms, mantendo as mesmas decisões em três contextos.
+Isso mede somente funções Python, não o tempo total do Stockfish nem ganho de Elo.
+
+## Testar
+
+Campanha automática em 5+1, mesmos recursos em ambos os motores:
+
+    ./.venv/Scripts/python.exe -X utf8 "tests/testes de campeonato/testar_campeonato.py" --formato melhor-de-tres --tempo 300 --incremento 1 --threads 4 --hash 512
+
+O ensaio usa o mesmo modelo de confronto. O modo completo usa o repertório;
+o adversário original não. Use `--sem-abertura` para isolar essa diferença.
+Também existem `--formato classificacao` (única com desempate),
+`--formato armageddon` e `--formato pares`.
+No ensaio direto de Armageddon, os jogos de preparação são identificados como
+sintéticos e não entram no resumo de partidas efetivamente disputadas.
 
     ./.venv/Scripts/python.exe -X utf8 -m pytest -q -p no:cacheprovider tests
     ./.venv/Scripts/python.exe -X utf8 -m pytest -q -p no:cacheprovider tests --motor-real
 
-191 testes aprovados, incluindo seis integrações com o Stockfish real.
-Cobertura: 27 placares possíveis da melhor de três com as duas cores iniciais,
-todos os resultados/cores no Armageddon, desempate pelos relógios, interrupções,
-falhas, correções auditáveis, persistência e conflito de sessões, tabela incompleta,
-provas de necessidade de resultado e mudanças funcionais de lance pelo contexto.
+Os testes verificam placares e cores, Armageddon nos dois formatos, frações de
+segundo, ajustes físicos, migração de bancos, integridade dos históricos,
+limites do repertório e comunicação real com o motor. Testes funcionais e
+baterias curtas não demonstram superioridade competitiva.
+Validação de 30/10/2026: 238 testes passaram, incluindo sete integrações com o
+Stockfish real. Não foi executado um confronto completo de 5+1 nesta revisão.
 
-A integração em 5+1 disputou DOIS meios-lances reais com quatro threads e 512 MB
-por motor, verificando lances legais, dados técnicos e relógios. As demais
-integrações verificam a comunicação, a antecipação e o jogo manual com entrada
-apenas UCI e os dois contadores automáticos. Os testes determinísticos também
-verificam troca de turno, incremento, expiração e congelamento ao final.
-Uma melhor de três completa
-em 5+1 ainda precisa ser disputada; a validação funcional não prova ganho de força.
+## Organização e origem
 
-## Origem e licença
+`jogar.py` é a entrada. Em `chess_challenge/`: `motor.py` integra o Stockfish;
+`inteligencia.py` coordena buscas e antecipação; `estrategia.py` seleciona
+alternativas; `aberturas.py/json` mantêm a preparação; `campanha.py` guarda
+confrontos e resultados; `torneio.py` opera a campanha; `partida.py` conduz
+os turnos; `relogio.py` conta os tempos; `relatorios.py` exporta TXT.
+Os testes ficam em `tests/`; bancos e relatórios gerados são ignorados pelo Git.
 
 Stockfish 19, tag sf_19, commit edb0d9db6731067ec50ce619ff372b463bc4dd5d.
-A [declaração de origem](../STOCKFISH.md) contém os links dos fontes, autores,
-licença e identificação da instalação local em ../stockfish. GPLv3 em LICENSE.
-Declare à banca versão/commit de origem, dependências e contribuição própria.
-A aceitação formal do componente decisório cabe à banca.
+A [declaração de origem](../STOCKFISH.md) identifica autores, licença e fontes.
+Não alteramos C++ nem NNUE. A equipe informou em 30/10/2026 que o seletor Python
+foi aceito como componente decisório autoral; continua necessário demonstrar e
+defender seu funcionamento. O repertório não substitui essa contribuição.

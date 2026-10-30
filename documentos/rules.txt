@@ -41,7 +41,7 @@ O tabuleiro físico, mantido pelas equipes, é a fonte da verdade. Divergência 
 11. Como serão escolhidas brancas e pretas?
 Pelo pareamento: a equipe à esquerda joga a primeira partida com as brancas. Em melhor de 3, as cores se alternam a cada partida – a terceira partida repete a cor da primeira.
 
-12. Como desempata uma melhor de 3 com muitos empates?
+  12. Como desempata uma melhor de 3 com muitos empates?
 Empate por tripla repetição e pela regra dos 50 lances é declarado automaticamente pelo árbitro, sem necessidade de reclamação.
 Persistindo o empate no confronto, decide-se pelo tempo total restante somado nas três partidas. Permanecendo a igualdade, disputa-se um Armageddon: brancas com 5 minutos, pretas com 4 minutos, empate classificando as pretas; as cores são sorteadas.
 

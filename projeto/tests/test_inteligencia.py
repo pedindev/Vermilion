@@ -357,6 +357,82 @@ def test_sem_tempo_nao_se_aplica_nem_empate_qualificante():
         Jogador(None, contexto=Contexto("preservar_empate", empate_classifica=True)).calcular(posicao_antes_da_tripla(), 0, 0)
 
 
+def test_repertorio_inteiro_tem_lances_legais_e_nao_dispara_busca():
+    from chess_challenge.aberturas import Repertorio
+    livro = Repertorio.carregar()
+    assert livro.entradas and livro.erro is None
+    for historico, item in livro.entradas.items():
+        board = chess.Board()
+        for uci in historico:
+            board.push_uci(uci)
+        antes = board.fen(), list(board.move_stack)
+        with Jogador(None, contexto=Contexto(), repertorio=livro) as j:
+            d = j.calcular(board, 900, 10, adversario=900)
+            assert d.lance.uci() == item["uci"] and d.lance in board.legal_moves
+            assert d.info["nodes"] == d.info["depth"] == 0 and "score" not in d.info
+            assert d.detalhes["fonte"] == "abertura_preparada"
+            assert d.detalhes["analise_previa"]["profundidade"] >= 16
+            assert not d.detalhes["troca_autoral"]
+        assert (board.fen(), board.move_stack) == antes
+
+
+def test_repertorio_termina_em_dez_meios_lances_e_nao_reentra():
+    from chess_challenge.aberturas import Repertorio
+    livro, board = Repertorio.carregar(), chess.Board()
+    with Jogador(None, repertorio=livro) as j:
+        for _ in range(10):
+            board.push(j.calcular(board, 900).lance)
+        assert livro.consultar(board) is None
+        m = MotorSimulado([next(iter(board.legal_moves)).uci(), "e2e4"])
+        j.motor = m
+        assert j.calcular(board, 900).lance in board.legal_moves
+        j.calcular(chess.Board(), 900)
+        assert j.repertorio is None and len(m.consultas) == 2
+
+
+def test_desvio_da_abertura_e_modos_de_referencia_usam_motor():
+    from chess_challenge.aberturas import Repertorio
+    livro, board = Repertorio.carregar(), chess.Board()
+    board.push_uci("e2e4")
+    board.push_uci("a7a6")
+    motor = MotorSimulado(["g1f3"])
+    with Jogador(motor, repertorio=livro) as j:
+        j.calcular(board, 900)
+        assert j.repertorio is None and len(motor.consultas) == 1
+    for modo in ("original", "ponderacao"):
+        motor = MotorSimulado(["e2e4"])
+        with Jogador(motor, modo, repertorio=livro) as j:
+            j.calcular(chess.Board(), 900)
+            assert len(motor.consultas) == 1
+
+
+@pytest.mark.parametrize("conteudo", ["{", "{}", '{"formato": 1, "limite_meios_lances": 11}'])
+def test_repertorio_corrompido_nao_impede_busca(tmp_path, conteudo):
+    from chess_challenge.aberturas import Repertorio
+    caminho = tmp_path / "book.json"
+    assert Repertorio.carregar(caminho).erro
+    caminho.write_text(conteudo, encoding="utf-8")
+    livro = Repertorio.carregar(caminho)
+    assert livro.erro and not livro.entradas
+    with Jogador(MotorSimulado(["e2e4"]), repertorio=livro) as j:
+        assert j.calcular(chess.Board(), 900).lance.uci() == "e2e4"
+
+
+@pytest.mark.motor_real
+def test_repertorio_e_retorno_a_busca_com_stockfish_real():
+    from chess_challenge.aberturas import Repertorio
+    from chess_challenge.motor import abrir_motor
+    with abrir_motor() as motor, Jogador(motor, repertorio=Repertorio.carregar()) as j:
+        board = chess.Board()
+        d = j.calcular(board, 900, 10)
+        assert d.lance.uci() == "e2e4" and d.info["nodes"] == 0
+        board.push(d.lance)
+        board.push_uci("a7a6")
+        resposta = j.calcular(board, 2, 0)
+        assert resposta.lance in board.legal_moves and resposta.info["nodes"] > 0
+        assert j.repertorio is None
+
+
 @pytest.mark.motor_real
 @pytest.mark.parametrize("modo", ["ponderacao", "completo"])
 def test_integracao_antecipacao_e_resposta_com_motor_real(modo):

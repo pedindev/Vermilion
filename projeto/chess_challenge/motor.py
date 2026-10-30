@@ -56,7 +56,7 @@ def calcular_lance(motor, tabuleiro, restante, incremento=10, agora=monotonic, a
     if not isfinite(restante) or restante <= 0 or not isfinite(incremento) or incremento < 0:
         raise ValueError("Informe um saldo positivo e um incremento não negativo.")
     # Não envia movetime, profundidade-alvo, sondagem ou regras próprias de parada.
-    # Só temos o relógio da nossa equipe na operação com tabuleiro físico.
+    # Envia os saldos por cor; o próprio Stockfish escolhe a duração da busca.
     if tabuleiro.turn == chess.WHITE:
         limite = chess.engine.Limit(white_clock=restante, white_inc=incremento)
     else:

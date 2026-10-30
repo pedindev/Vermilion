@@ -4,9 +4,10 @@ Resultados são sempre relativos à nossa equipe. O resultado de uma partida
 empatada no Armageddon continua E; a classificação é uma informação separada.
 """
 
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from contextlib import closing
 from datetime import datetime, timezone
+from functools import lru_cache
 import json
 from math import isfinite
 from pathlib import Path
@@ -36,6 +37,21 @@ def resultado_relativo(placar, cor):
     return "E" if placar == "1/2-1/2" else "V" if (placar == "1-0") == cor else "D"
 
 
+@lru_cache(maxsize=512)
+def validar_historico(fen_inicial, lances, fen_atual):
+    """Revalida quando o conteúdo muda; partidas anteriores não são rejogadas a cada salvamento."""
+    board = chess.Board(fen_inicial)
+    if not board.is_valid():
+        raise ValueError("Posição inicial inválida no histórico.")
+    for uci in lances:
+        lance = chess.Move.from_uci(uci)
+        if lance not in board.legal_moves:
+            raise ValueError("Lance ilegal no histórico.")
+        board.push(lance)
+    if fen_atual and fen_atual != board.fen():
+        raise ValueError("Histórico de lances não corresponde ao tabuleiro salvo.")
+
+
 @dataclass
 class Regras:
     tempo: float = 900
@@ -43,32 +59,28 @@ class Regras:
     armageddon_brancas: float = 300
     armageddon_pretas: float = 240
     incremento_armageddon: float = 0
-    origem_armageddon: str = "Sem incremento por orientação da equipe; FAQ não explicita incremento."
-    pontos_vitoria: float = 3
-    pontos_empate: float = 1
-    pontos_derrota: float = 0
-    rodadas: int | None = None
-    vagas: int | None = None
-    equipes: int | None = None
-    classificacao_por_pontos_confirmada: bool = False
-    criterio_tabela: str = "Classificação oficial informada pelo operador; fórmula ELO não publicada."
+    origem_armageddon: str = "Sem incremento, confirmado pela equipe em 30/10/2026 após consulta à organização."
     encerrar_ao_decidir: bool = True
+    duracao_prevista_minutos: float | None = None
+    legado: dict = field(default_factory=dict, repr=False)  # Preserva configurações antigas, sem usá-las.
+
+    @classmethod
+    def de_dict(cls, dados):
+        nomes = {f.name for f in fields(cls)}
+        atuais = {k: v for k, v in dados.items() if k in nomes}
+        atuais["legado"] = {**atuais.get("legado", {}),
+                            **{k: v for k, v in dados.items() if k not in nomes}}
+        return cls(**atuais)
 
     def validar(self):
         for nome in ("tempo", "armageddon_brancas", "armageddon_pretas"):
             numero(getattr(self, nome), nome, True)
-        for nome in ("incremento", "incremento_armageddon", "pontos_vitoria", "pontos_empate", "pontos_derrota"):
+        for nome in ("incremento", "incremento_armageddon"):
             numero(getattr(self, nome), nome)
-        for nome in ("rodadas", "vagas", "equipes"):
-            valor = getattr(self, nome)
-            if valor is not None and (type(valor) is not int or valor < 1):
-                raise ValueError(f"{nome} deve ser inteiro positivo ou não informado.")
+        if self.duracao_prevista_minutos is not None:
+            numero(self.duracao_prevista_minutos, "Duração prevista", True)
         if type(self.encerrar_ao_decidir) is not bool:
             raise ValueError("encerrar_ao_decidir deve ser booleano.")
-        if type(self.classificacao_por_pontos_confirmada) is not bool:
-            raise ValueError("Confirmação da pontuação deve ser booleana.")
-        if self.equipes is not None and self.vagas is not None and self.vagas > self.equipes:
-            raise ValueError("Vagas não podem exceder o número de equipes.")
 
 
 @dataclass(frozen=True)
@@ -116,7 +128,7 @@ class Confronto:
     regras_aplicadas: dict | None = None
 
     def regras(self, padrao):
-        return Regras(**self.regras_aplicadas) if self.regras_aplicadas is not None else padrao
+        return Regras.de_dict(self.regras_aplicadas) if self.regras_aplicadas is not None else padrao
 
     def validar(self):
         if not self.adversario.strip() or self.fase not in FASES or self.formato not in ("unica", "melhor-de-tres"):
@@ -134,7 +146,7 @@ class Confronto:
         if self.decisao_oficial is not None and self.decisao_oficial.get("status") not in ("classificado", "eliminado"):
             raise ValueError("Decisão oficial inválida.")
         if self.regras_aplicadas is not None:
-            Regras(**self.regras_aplicadas).validar()
+            Regras.de_dict(self.regras_aplicadas).validar()
         for p in self.partidas:
             if p.get("status") not in ("em_andamento", "aguardando_resultado", "inconclusiva", "concluida", "cancelada") or type(p.get("cor")) is not bool:
                 raise ValueError("Estado de partida inválido.")
@@ -143,13 +155,8 @@ class Confronto:
                     raise ValueError("Relógio final inválido no histórico.")
             if p["status"] == "concluida" and p.get("resultado") != resultado_relativo(p.get("placar"), p["cor"]):
                 raise ValueError("Placar e resultado relativo não correspondem.")
-            board = chess.Board(p.get("fen_inicial") or chess.STARTING_FEN)
-            if not board.is_valid():
-                raise ValueError("Posição inicial inválida no histórico.")
-            for uci in p.get("lances", []):
-                board.push_uci(uci)
-            if p.get("fen_atual") and p["fen_atual"] != board.fen():
-                raise ValueError("Histórico de lances não corresponde ao tabuleiro salvo.")
+            validar_historico(p.get("fen_inicial") or chess.STARTING_FEN,
+                              tuple(p.get("lances", [])), p.get("fen_atual"))
         if sum(p["status"] in ("em_andamento", "aguardando_resultado", "inconclusiva") for p in self.partidas) > 1:
             raise ValueError("Mais de uma partida pendente no mesmo confronto.")
 
@@ -171,31 +178,34 @@ class Confronto:
         base = {"partidas": len(normais), "diferenca": diferenca, "saldos": saldos}
         if self.decisao_oficial is not None:
             return dict(base, status=self.decisao_oficial["status"], criterio=self.decisao_oficial["motivo"])
+        def vencedor(ganhou):
+            if self.fase == "classificacao":
+                return "vitoria" if ganhou else "derrota"
+            return "classificado" if ganhou else "eliminado"
+
+        quantidade = 1 if self.formato == "unica" else 3
+        if len(normais) < quantidade:
+            decidido = regras.encerrar_ao_decidir and abs(diferenca) > quantidade - len(normais)
+            status = vencedor(diferenca > 0) if decidido else "em_disputa"
+            criterio = "Placar já decidido" if decidido else "Confronto em andamento"
+        elif diferenca:
+            status, criterio = vencedor(diferenca > 0), "Placar"
+        elif self.formato == "unica":
+            status, criterio = "armageddon", "Partida única empatada"
+        elif saldos is None:
+            status, criterio = "relogios_pendentes", "Informar os dois saldos finais das três partidas"
+        else:
+            diferenca_ms = sum(p["saldo_nosso_ms"] - p["saldo_outro_ms"] for p in normais)
+            status = vencedor(diferenca_ms > 0) if diferenca_ms else "armageddon"
+            criterio = "Soma dos relógios finais" if diferenca_ms else "Placar e soma dos relógios iguais"
+
         arm = next((p for p in self.concluidas if p["armageddon"]), None)
         if arm:
-            if len(normais) != 3 or diferenca or saldos is None or sum(p["saldo_nosso_ms"] for p in normais) != sum(p["saldo_outro_ms"] for p in normais):
+            if status != "armageddon":
                 return dict(base, status="revisao_pendente", criterio="Correção anterior alterou a condição do Armageddon; consultar arbitragem")
             ganhou = arm["resultado"] == "V" or (arm["resultado"] == "E" and not arm["cor"])
-            return dict(base, status="classificado" if ganhou else "eliminado", criterio="Armageddon")
-        if self.formato == "unica":
-            if not normais:
-                return dict(base, status="em_disputa", criterio="Partida única")
-            r = normais[0]["resultado"]
-            status = {"V": "vitoria", "E": "empate", "D": "derrota"}[r] if self.fase == "classificacao" else {"V": "classificado", "E": "desempate_pendente", "D": "eliminado"}[r]
-            return dict(base, status=status, criterio="Partida única")
-        if len(normais) < 3:
-            if regras.encerrar_ao_decidir and abs(diferenca) > 3 - len(normais):
-                return dict(base, status="classificado" if diferenca > 0 else "eliminado", criterio="Placar já decidido")
-            return dict(base, status="em_disputa", criterio="Melhor de três")
-        if diferenca:
-            return dict(base, status="classificado" if diferenca > 0 else "eliminado", criterio="Placar")
-        if saldos is None:
-            return dict(base, status="relogios_pendentes", criterio="Informar os dois saldos finais das três partidas")
-        soma_nossa = sum(p["saldo_nosso_ms"] for p in normais)
-        soma_outra = sum(p["saldo_outro_ms"] for p in normais)
-        if soma_nossa != soma_outra:
-            return dict(base, status="classificado" if soma_nossa > soma_outra else "eliminado", criterio="Soma dos relógios finais")
-        return dict(base, status="armageddon", criterio="Placar e soma dos relógios iguais")
+            status, criterio = vencedor(ganhou), "Armageddon"
+        return dict(base, status=status, criterio=criterio)
 
     def contexto(self, regras, lado_nosso=True):
         regras = self.regras(regras)
@@ -213,11 +223,8 @@ class Confronto:
             return Contexto("buscar_vitoria" if cor else "preservar_empate",
                 "Armageddon: brancas precisam vencer; empate classifica pretas.", not cor, cor,
                 **comum, armageddon=True)
-        if self.fase == "classificacao":
-            objetivo = self.objetivo_informado if lado_nosso else "equilibrado"
-            return Contexto(objetivo, self.justificativa_objetivo or "Tabela oficial sem necessidade de resultado informada.", **comum)
         if self.formato == "unica":
-            return Contexto("buscar_vitoria", "Eliminatória em partida única; empate exige decisão da organização.", **comum)
+            return Contexto(motivo="Partida única: buscar o melhor resultado no tabuleiro; empate leva ao Armageddon.", **comum)
         diferenca = situacao["diferenca"] * (1 if lado_nosso else -1)
         if diferenca > 2 - n:
             return Contexto("preservar_empate", "Empate nesta partida garante o confronto.", True, False, **comum)
@@ -250,6 +257,7 @@ class Confronto:
         p = dict(id=uuid4().hex, numero=indice + 1, armageddon=arm, cor=cor,
                  tempo_nosso=tempos[0 if cor else 1], tempo_outro=tempos[1 if cor else 0],
                  incremento=regras.incremento_armageddon if arm else regras.incremento,
+                 duracao_prevista_minutos=regras.duracao_prevista_minutos,
                  status="em_andamento", inicio=agora(), fen_inicial=None, lances=[], registros=[],
                  resultado=None, placar=None, saldo_nosso_ms=None, saldo_outro_ms=None,
                  contexto=asdict(self.contexto(regras)))
@@ -297,7 +305,7 @@ class Campanha:
     campeonato: str = "III Chess Challenge"
     regras: Regras = field(default_factory=Regras)
     confrontos: list = field(default_factory=list)
-    tabelas: list = field(default_factory=list)
+    tabelas: list = field(default_factory=list)  # Histórico legado; não participa das decisões.
     revisao: int = 0
     versao: int = 1
 
@@ -327,62 +335,15 @@ class Campanha:
         self.confrontos.append(c)
         return c
 
-    def registrar_tabela(self, linhas, rodada, fonte="Organização", criterio="oficial"):
-        if type(rodada) is not int or rodada < 1 or not fonte.strip() or not linhas:
-            raise ValueError("Informe rodada, fonte e linhas da tabela oficial.")
-        equipes, posicoes = [], []
-        for linha in linhas:
-            if not isinstance(linha.get("equipe"), str) or not linha["equipe"].strip() or type(linha.get("posicao")) is not int or linha["posicao"] < 1:
-                raise ValueError("Cada linha exige equipe e posição positiva.")
-            numero(linha.get("pontos"), "Pontos")
-            equipes.append(linha["equipe"])
-            posicoes.append(linha["posicao"])
-        if len(equipes) != len(set(equipes)) or self.equipe not in equipes:
-            raise ValueError("Tabela deve conter nossa equipe, sem equipes duplicadas.")
-        self.tabelas.append(dict(data=agora(), rodada=rodada, fonte=fonte, criterio=criterio,
-                                linhas=sorted(linhas, key=lambda l: l["posicao"])))
-
     def contexto(self, confronto, lado_nosso=True):
-        padrao = confronto.contexto(self.regras, lado_nosso)
-        r = self.regras
-        if (not lado_nosso or confronto.fase != "classificacao" or confronto.formato != "unica"
-                or confronto.objetivo_informado != "equilibrado" or not self.tabelas
-                or not r.classificacao_por_pontos_confirmada or None in (r.rodadas, r.vagas, r.equipes)):
-            return padrao
-        tabela = self.tabelas[-1]
-        if tabela["rodada"] != confronto.rodada - 1 or len(tabela["linhas"]) != r.equipes or confronto.rodada > r.rodadas:
-            return padrao  # Tabela incompleta/desatualizada não prova classificação.
-        nossa = next(l for l in tabela["linhas"] if l["equipe"] == self.equipe)
-        outros = [l for l in tabela["linhas"] if l["equipe"] != self.equipe]
-        restantes = r.rodadas - confronto.rodada
-        maximo = max(r.pontos_vitoria, r.pontos_empate, r.pontos_derrota)
-        minimo = min(r.pontos_vitoria, r.pontos_empate, r.pontos_derrota)
-        # Limites conservadores: empate em pontos nunca é tratado como vaga certa.
-        nosso_minimo = nossa["pontos"] + r.pontos_empate + restantes * minimo
-        ameacas = sum(l["pontos"] + (restantes + 1) * maximo >= nosso_minimo for l in outros)
-        if ameacas < r.vagas:
-            return Contexto("preservar_empate", "Empate garante vaga pelos limites conservadores da tabela completa e pontuação confirmada.",
-                            True, False, fase=confronto.fase)
-        nosso_maximo = nossa["pontos"] + r.pontos_empate + restantes * maximo
-        acima = sum(l["pontos"] + (restantes + 1) * minimo > nosso_maximo for l in outros)
-        if acima >= r.vagas:
-            return Contexto("buscar_vitoria", "Empate não permite alcançar as vagas, mesmo vencendo todas as rodadas restantes.",
-                            False, True, fase=confronto.fase)
-        return padrao
+        return confronto.contexto(self.regras, lado_nosso)
 
     def resumo(self):
         partidas = [p for c in self.confrontos for p in c.concluidas]
-        pontos = sum({"V": c.regras(self.regras).pontos_vitoria, "E": c.regras(self.regras).pontos_empate,
-                      "D": c.regras(self.regras).pontos_derrota}[p["resultado"]]
-                     for c in self.confrontos if c.fase == "classificacao" for p in c.concluidas if not p["armageddon"])
-        nossa_linha = next((l for l in self.tabelas[-1]["linhas"] if l["equipe"] == self.equipe), None) if self.tabelas else None
         return dict(equipe=self.equipe, campeonato=self.campeonato,
                     vitorias=sum(p["resultado"] == "V" for p in partidas),
                     empates=sum(p["resultado"] == "E" for p in partidas),
-                    derrotas=sum(p["resultado"] == "D" for p in partidas), pontos=pontos,
-                    tabela=self.tabelas[-1] if self.tabelas else None,
-                    posicao_oficial=nossa_linha["posicao"] if nossa_linha else None,
-                    pontos_oficiais=nossa_linha["pontos"] if nossa_linha else None,
+                    derrotas=sum(p["resultado"] == "D" for p in partidas),
                     confrontos=[dict(id=c.id, adversario=c.adversario, fase=c.fase,
                                      rodada=c.rodada, **c.situacao(self.regras)) for c in self.confrontos])
 
@@ -410,7 +371,7 @@ class Repositorio:
         if linha is None:
             raise ValueError("Banco sem campanha.")
         dados = json.loads(linha[1])
-        dados["regras"] = Regras(**dados["regras"])
+        dados["regras"] = Regras.de_dict(dados["regras"])
         dados["confrontos"] = [Confronto(**c) for c in dados["confrontos"]]
         campanha = Campanha(**dados)
         if campanha.revisao != linha[0]:

@@ -1,5 +1,8 @@
 from dataclasses import asdict
 from itertools import product
+from contextlib import closing
+import json
+import sqlite3
 
 import chess
 import pytest
@@ -99,7 +102,7 @@ def test_interrupcao_nao_pontua_e_bloqueia_nova_partida():
     c = campanha.novo_confronto("Outra")
     p = c.iniciar(campanha.regras)
     p["status"] = "inconclusiva"
-    assert campanha.resumo()["pontos"] == 0
+    assert "pontos" not in campanha.resumo()
     assert campanha.resumo()["empates"] == 0
     with pytest.raises(ValueError):
         c.iniciar(campanha.regras)
@@ -109,16 +112,16 @@ def test_interrupcao_nao_pontua_e_bloqueia_nova_partida():
         c.finalizar(p["id"], "*", "Limite", 5, 5)
 
 
-def test_resultado_idempotente_correcao_recalcula_pontos_e_guarda_auditoria():
+def test_resultado_idempotente_correcao_recalcula_resultados_e_guarda_auditoria():
     campanha = Campanha("Equipe")
     c = campanha.novo_confronto("Outra")
     p = concluir(c, campanha.regras, "V")
     c.finalizar(p["id"], "1-0", "Reenvio", 30, 30)
-    assert campanha.resumo()["pontos"] == 3
+    assert campanha.resumo()["vitorias"] == 1
     with pytest.raises(ValueError):
         c.finalizar(p["id"], "0-1", "Sem correção", 30, 30)
     c.corrigir(p["id"], "Árbitro corrigiu resultado", placar="1/2-1/2", motivo="Empate", saldo_nosso=30, saldo_outro=30)
-    assert campanha.resumo()["pontos"] == 1
+    assert campanha.resumo()["empates"] == 1
     assert campanha.resumo()["vitorias"] == 0
     assert p["correcoes"][0]["anterior"]["placar"] == "1-0"
 
@@ -168,7 +171,7 @@ def test_banco_rejeita_historico_ilegal_sem_perder_estado_anterior(tmp_path):
 
 
 @pytest.mark.parametrize("nome,valor", [("tempo", 0), ("tempo", float("nan")), ("incremento", -1),
-    ("incremento_armageddon", float("inf")), ("rodadas", True), ("vagas", 0)])
+    ("incremento_armageddon", float("inf")), ("duracao_prevista_minutos", True), ("duracao_prevista_minutos", 0)])
 def test_regras_invalidas_rejeitadas(nome, valor):
     r = Regras()
     setattr(r, nome, valor)
@@ -176,52 +179,38 @@ def test_regras_invalidas_rejeitadas(nome, valor):
         r.validar()
 
 
-def tabela(campanha, pontos):
-    campanha.registrar_tabela([dict(equipe=nome, pontos=p, posicao=i + 1)
-        for i, (nome, p) in enumerate(zip(("Equipe", "A", "B", "C"), pontos))], 2)
+def test_banco_antigo_preserva_tabelas_sem_usar_pontuacao(tmp_path):
+    repo = Repositorio(tmp_path / "antigo.sqlite3")
+    campanha = Campanha("Equipe")
+    campanha.novo_confronto("Outra", rodada=3)
+    repo.criar(campanha)
+    antigas = dict(pontos_vitoria=3, pontos_empate=1, pontos_derrota=0,
+                   rodadas=3, vagas=2, equipes=4, classificacao_por_pontos_confirmada=True)
+    tabela = [dict(rodada=2, linhas=[dict(equipe="Equipe", posicao=1, pontos=900)])]
+    with closing(sqlite3.connect(repo.caminho)) as banco, banco:
+        dados = json.loads(banco.execute("SELECT dados FROM campanha").fetchone()[0])
+        dados["regras"].update(antigas)
+        dados["confrontos"][0]["regras_aplicadas"].update(antigas)
+        dados["tabelas"] = tabela
+        banco.execute("UPDATE campanha SET dados=?", (json.dumps(dados),))
+    atual = repo.carregar()
+    assert atual.regras.legado == antigas and atual.tabelas == tabela
+    assert atual.contexto(atual.confrontos[0]).objetivo == "equilibrado"
+    assert not atual.contexto(atual.confrontos[0]).empate_classifica
+    assert not {"pontos", "pontos_oficiais", "posicao_oficial", "tabela"} & atual.resumo().keys()
+    repo.salvar(atual)
+    reaberta = repo.carregar()
+    assert reaberta.tabelas == tabela and reaberta.regras.legado == antigas
+    assert reaberta.confrontos[0].regras(reaberta.regras).legado == antigas
 
 
-def test_tabela_nao_e_inventada_e_objetivo_so_e_provado_com_regras_confirmadas():
-    r = Regras(rodadas=3, vagas=2, equipes=4)
-    campanha = Campanha("Equipe", regras=r)
-    c = campanha.novo_confronto("Outra", rodada=3)
-    tabela(campanha, [6, 6, 0, 0])
-    assert campanha.resumo()["posicao_oficial"] == 1
-    assert campanha.contexto(c).objetivo == "equilibrado"
-    r.classificacao_por_pontos_confirmada = True
-    assert campanha.contexto(c).empate_classifica
-    c.rodada = 2
-    assert campanha.contexto(c).objetivo == "equilibrado"  # Tabela de outra rodada.
-
-
-def test_tabela_prova_vitoria_necessaria_sem_fabricar_ranking_elo():
-    r = Regras(rodadas=3, vagas=2, equipes=4, classificacao_por_pontos_confirmada=True)
-    campanha = Campanha("Equipe", regras=r)
-    c = campanha.novo_confronto("Outra", rodada=3)
-    tabela(campanha, [0, 4, 2, 0])
-    assert campanha.contexto(c).evitar_empate
-    assert campanha.contexto(c).objetivo == "buscar_vitoria"
-    assert campanha.contexto(c, False).objetivo == "equilibrado"
-
-
-def test_tabela_incompleta_e_pontos_empatados_nao_garantem_vaga():
-    r = Regras(rodadas=3, vagas=2, equipes=5, classificacao_por_pontos_confirmada=True)
-    campanha = Campanha("Equipe", regras=r)
-    c = campanha.novo_confronto("Outra", rodada=3)
-    tabela(campanha, [6, 6, 0, 0])
-    assert not campanha.contexto(c).empate_classifica
-    r.equipes = 4
-    campanha.tabelas[-1]["linhas"][2]["pontos"] = 4
-    assert not campanha.contexto(c).empate_classifica  # Pode igualar sete pontos.
-
-
-def test_objetivo_manual_exige_justificativa_e_nao_inventa_empate_classificante():
+def test_objetivo_legado_da_tabela_nao_influencia_a_partida():
     c = Confronto("Outra", objetivo_informado="preservar_empate")
     with pytest.raises(ValueError):
         c.validar()
     c.justificativa_objetivo = "Orientação da equipe pela tabela oficial"
     c.validar()
-    assert c.contexto(Regras()).objetivo == "preservar_empate"
+    assert c.contexto(Regras()).objetivo == "equilibrado"
     assert not c.contexto(Regras()).empate_classifica
 
 
@@ -242,9 +231,8 @@ def test_regras_historicas_nao_mudam_quando_configuramos_proximo_confronto():
     c = campanha.novo_confronto("Outra")
     concluir(c, campanha.regras, "V")
     campanha.regras.tempo = 900
-    campanha.regras.pontos_vitoria = 5
     assert c.regras(campanha.regras).tempo == 300
-    assert campanha.resumo()["pontos"] == 3
+    assert campanha.resumo()["vitorias"] == 1
 
 
 def test_eliminacao_bloqueia_avanco_mas_permite_disputa_de_terceiro_lugar():
@@ -254,3 +242,56 @@ def test_eliminacao_bloqueia_avanco_mas_permite_disputa_de_terceiro_lugar():
     with pytest.raises(ValueError):
         campanha.novo_confronto("Finalista", fase="final")
     assert campanha.novo_confronto("Terceiro", fase="terceiro-lugar").fase == "terceiro-lugar"
+
+
+@pytest.mark.parametrize("fase,cor,resultado", list(product(
+    ("classificacao", "oitavas", "quartas", "semifinal", "final", "terceiro-lugar"),
+    (True, False), "VED")))
+def test_partida_unica_empatada_tem_um_armageddon_em_qualquer_fase(fase, cor, resultado):
+    campanha = Campanha("Equipe", regras=Regras(duracao_prevista_minutos=25))
+    c = campanha.novo_confronto("Outra", fase=fase)
+    normal = concluir(c, campanha.regras, "E", nosso=10.001, outro=20.002)
+    assert normal["duracao_prevista_minutos"] == 25
+    assert (normal["tempo_nosso"], normal["tempo_outro"], normal["incremento"]) == (900, 900, 10)
+    assert c.situacao(campanha.regras)["status"] == "armageddon"
+    c.cor_armageddon = cor
+    arm = concluir(c, campanha.regras, resultado)
+    assert arm["armageddon"] and arm["incremento"] == 0
+    assert sorted((arm["tempo_nosso"], arm["tempo_outro"])) == [240, 300]
+    ganhou = resultado == "V" or (resultado == "E" and not cor)
+    esperado = ("vitoria" if ganhou else "derrota") if fase == "classificacao" else ("classificado" if ganhou else "eliminado")
+    assert c.situacao(campanha.regras)["status"] == esperado
+    assert campanha.resumo()["empates"] == 1 + (resultado == "E")
+    with pytest.raises(ValueError):
+        c.iniciar(campanha.regras)
+    if fase == "classificacao":
+        assert campanha.novo_confronto("Próxima equipe")
+
+
+def test_melhor_de_tres_nao_tem_armageddon_entre_as_partidas():
+    c, regras = Confronto("Outra", "final", formato="melhor-de-tres"), Regras()
+    for _ in range(2):
+        concluir(c, regras)
+        assert c.situacao(regras)["status"] == "em_disputa"
+    concluir(c, regras)
+    assert c.situacao(regras)["status"] == "armageddon"
+
+
+def test_cache_de_validacao_detecta_alteracao_no_historico_e_no_fen():
+    from chess_challenge.campanha import validar_historico
+    c, regras = Confronto("Outra"), Regras()
+    p = c.iniciar(regras)
+    board = chess.Board()
+    board.push_uci("e2e4")
+    p.update(lances=["e2e4"], fen_atual=board.fen())
+    c.validar()
+    hits = validar_historico.cache_info().hits
+    c.validar()
+    assert validar_historico.cache_info().hits > hits
+    p["lances"][0] = "e2e5"
+    with pytest.raises(ValueError):
+        c.validar()
+    p["lances"][0] = "e2e4"
+    p["fen_atual"] = chess.STARTING_FEN
+    with pytest.raises(ValueError):
+        c.validar()

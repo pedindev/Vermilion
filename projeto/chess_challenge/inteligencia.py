@@ -224,13 +224,14 @@ class Antecipacao:
 
 
 class Jogador:
-    def __init__(self, motor, modo="completo", parametros=None, contexto=None):
+    def __init__(self, motor, modo="completo", parametros=None, contexto=None, repertorio=None):
         if modo not in MODOS:
             raise ValueError(f"Modo inválido: {modo}")
         self.motor, self.modo = motor, modo
         self.parametros = parametros or Parametros()
         self.antecipacao = Antecipacao(motor, modo, self.parametros)
         self.contexto = contexto
+        self.repertorio = repertorio if modo == "completo" else None
 
     def __enter__(self):
         return self
@@ -247,14 +248,24 @@ class Jogador:
     def calcular(self, board, restante, incremento=10, adversario=None, agora=monotonic):
         if not isfinite(restante) or restante <= 0 or not isfinite(incremento) or incremento < 0:
             raise ValueError("Informe saldo positivo e incremento não negativo.")
+        if adversario is not None and (not isfinite(adversario) or adversario < 0):
+            raise ValueError("Saldo adversário inválido.")
         inicio = agora()
         preparado = self.antecipacao.parar(board)
         saldo = restante - (agora() - inicio)
+        if saldo <= 0:
+            raise ValueError("Tempo esgotado antes da escolha do lance.")
         contexto = self.contexto.com_relogios(saldo, adversario) if self.contexto is not None else None
         if contexto is not None and self.modo == "completo":
             lance, motivo = final_qualificante(board, contexto)
             if lance is not None:
                 return decisao_por_regra(lance, motivo, contexto, agora() - inicio, board.turn)
+        if self.repertorio is not None:
+            abertura = self.repertorio.decidir(board, agora() - inicio, contexto)
+            if abertura is not None:
+                return replace(abertura, tempo=agora() - inicio)
+            # Ao sair da preparação, permanece na análise normal até o fim.
+            self.repertorio = None
         base = calcular_lance(self.motor, board, saldo, incremento, adversario=adversario)
         detalhes = {"versao": VERSAO, "modo": self.modo, "original": base.lance.uci(),
                     "antecipacao": "acertou" if preparado.acerto else "errou" if preparado.previsao else "sem previsão",

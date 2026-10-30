@@ -134,6 +134,39 @@ def test_prazo_zero_nao_espera_entrada():
         entrada_com_prazo(lambda _: pytest.fail("Não deveria ler"), "UCI: ", 0)
 
 
+def test_ajuste_fisico_preserva_turno_gasto_e_incremento_sem_cobrar_duas_vezes():
+    from chess_challenge.relogio import formatar_relogios, ler_tempo
+    agora = [0]
+    r = RelogioPartida(900, 900, 10, lambda: agora[0])
+    r.iniciar()
+    agora[0] = 5
+    r.ajustar(ler_tempo("14:40.125"), ler_tempo("15:00"))
+    assert r.ativo is True and r.saldos() == {True: 880.125, False: 900}
+    assert "14:40.125" in formatar_relogios(r.saldos())
+    agora[0] = 8
+    assert r.confirmar_lance(True) == 8
+    assert r.saldos() == {True: 887.125, False: 900}
+    assert r.fonte == "sistema_com_ajuste_fisico"
+
+
+def test_comando_de_ajuste_so_muda_relogios_e_repassa_saldo_ao_motor(tmp_path):
+    from test_base import entrada_programada
+    motor = MotorSimulado(["e7e5"])
+    eventos, finais = [], []
+    def acompanhar(evento, board, registros, saldos, resultado):
+        eventos.append((evento, len(board.move_stack), saldos))
+        if evento == "fim":
+            finais.extend(registros)
+    board = executar(entrada_programada(["relogios 14:20.125 13:40.250", "e2e4", EOFError()]),
+        lambda _: None, conectar=lambda: motor, cor_inicial=False, modo="original", agora=lambda: 0,
+        acompanhamento=acompanhar, pasta_relatorios=tmp_path)
+    assert [m.uci() for m in board.move_stack] == ["e2e4", "e7e5"]
+    assert eventos[0] == ("relogio_fisico", 0, {True: 860.125, False: 820.250})
+    limite = motor.consultas[0][1]
+    assert (limite.white_clock, limite.black_clock, limite.black_inc) == pytest.approx((870.125, 820.250, 10), abs=.02)
+    assert all(r.fonte_tempo == "sistema_com_ajuste_fisico" for r in finais)
+
+
 @pytest.mark.motor_real
 def test_partida_real_entrada_so_uci_e_contadores_automaticos(tmp_path):
     from chess_challenge.campanha import Contexto

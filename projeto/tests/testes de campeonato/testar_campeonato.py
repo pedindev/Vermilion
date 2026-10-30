@@ -20,6 +20,7 @@ import chess.engine
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from chess_challenge.inteligencia import Jogador, MODOS, VERSAO, Parametros
 from chess_challenge.motor import abrir_motor, THREADS_PADRAO, HASH_PADRAO
+from chess_challenge.aberturas import Repertorio
 from chess_challenge.partida import motivo_encerramento
 from chess_challenge.relatorios import registrar_lance, salvar_texto
 from chess_challenge.campanha import Campanha, Regras, Repositorio, agora as data_utc
@@ -202,6 +203,7 @@ def main(argv=None, entrada=input, emitir=partial(print, flush=True), conectar=a
          pasta_logs=PASTA_LOGS):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--modo", choices=MODOS, default="completo")
+    parser.add_argument("--sem-abertura", action="store_true", help="Comparar sem repertório preparado")
     parser.add_argument("--adversario", choices=MODOS, default="original")
     parser.add_argument("--tempo", type=float, default=300)
     parser.add_argument("--incremento", type=float, default=1)
@@ -231,6 +233,7 @@ def main(argv=None, entrada=input, emitir=partial(print, flush=True), conectar=a
             parser.error("--pares só se aplica a --formato pares.")
         return testar_confronto(args, entrada, emitir, conectar, pasta_logs)
     linhas, resultados, codigo = [], [], 0
+    repertorio = None if args.sem_abertura else Repertorio.carregar()
 
     def saida(texto):
         linhas.append(texto)
@@ -263,7 +266,7 @@ def main(argv=None, entrada=input, emitir=partial(print, flush=True), conectar=a
                     fixar_cpu(motor_a, grupos[indice % 2])
                     fixar_cpu(motor_b, grupos[1 - indice % 2])
                 saida(f"Motores: {motor_a.id.get('name')} / {motor_b.id.get('name')}")
-                with Jogador(motor_a, args.modo) as nosso, Jogador(motor_b, args.adversario) as outro:
+                with Jogador(motor_a, args.modo, repertorio=repertorio) as nosso, Jogador(motor_b, args.adversario, repertorio=repertorio) as outro:
                     r = disputar(nosso, outro, cor, args.tempo, args.incremento, args.max_lances,
                                   board, saida, linhas.append, latencia=args.latencia)
             resultados.append(r)
@@ -291,6 +294,7 @@ def main(argv=None, entrada=input, emitir=partial(print, flush=True), conectar=a
 def testar_confronto(args, entrada, emitir, conectar, pasta_logs):
     """Mesmo estado usado no jogo manual; relógios reais, processos separados."""
     linhas, resultados = [], []
+    repertorio = None if args.sem_abertura else Repertorio.carregar()
 
     def saida(texto):
         linhas.append(texto)
@@ -307,7 +311,9 @@ def testar_confronto(args, entrada, emitir, conectar, pasta_logs):
         regras.validar()
         if caminho.exists():
             campanha = repo.carregar()
-            if asdict(campanha.regras) != asdict(regras):
+            atuais = {k: v for k, v in asdict(campanha.regras).items() if k != "legado"}
+            esperadas = {k: v for k, v in asdict(regras).items() if k != "legado"}
+            if atuais != esperadas:
                 raise ValueError("Os relógios/regras do banco diferem dos argumentos. Use a mesma configuração ou outro arquivo.")
             c = campanha.confrontos[-1]
             if c.ativa:
@@ -328,10 +334,11 @@ def testar_confronto(args, entrada, emitir, conectar, pasta_logs):
         saida(f"Formato: {args.formato} | fase: {c.fase} | banco: {caminho}")
         saida(f"Ritmo normal: {regras.tempo:g}s + {regras.incremento:g}s. Armageddon: {regras.armageddon_brancas:g}/{regras.armageddon_pretas:g}s + {regras.incremento_armageddon:g}s.")
         saida(f"Recursos por motor: {args.threads} threads, {args.hash_mb} MB; latência {args.latencia:g}s.")
+        saida(f"Repertório no modo completo: {'ativo' if repertorio and repertorio.entradas else 'desligado/indisponível'}; original permanece sem livro.")
         saida("Banco salvo automaticamente por lance. TXT somente com autorização ao final.")
-        for modulo in ("campanha.py", "estrategia.py", "inteligencia.py", "motor.py"):
+        for modulo in ("campanha.py", "estrategia.py", "inteligencia.py", "motor.py", "aberturas.py", "aberturas.json"):
             fonte = Path(__file__).resolve().parents[2] / "chess_challenge" / modulo
-            linhas.append(f"SHA256 {modulo}: {hashlib.sha256(fonte.read_bytes()).hexdigest()}")
+            linhas.append(f"SHA256 {modulo}: {hashlib.sha256(fonte.read_bytes()).hexdigest() if fonte.is_file() else 'arquivo ausente'}")
         linhas.append("Parâmetros do seletor: " + json.dumps(asdict(Parametros())))
         grupos = grupos_cpu() if args.afinidade == "auto" else None
         saida(f"Afinidade: {grupos or 'CPU compartilhada'}; grupos alternados a cada partida.")
@@ -361,7 +368,7 @@ def testar_confronto(args, entrada, emitir, conectar, pasta_logs):
                     fixar_cpu(motor_a, grupos[indice % 2])
                     fixar_cpu(motor_b, grupos[1 - indice % 2])
                 saida(f"Motores: {motor_a.id.get('name')} / {motor_b.id.get('name')}")
-                with Jogador(motor_a, args.modo, contexto=contexto_nosso) as nosso, Jogador(motor_b, args.adversario, contexto=contexto_outro) as outro:
+                with Jogador(motor_a, args.modo, contexto=contexto_nosso, repertorio=repertorio) as nosso, Jogador(motor_b, args.adversario, contexto=contexto_outro, repertorio=repertorio) as outro:
                     tempos = {cor: p["tempo_nosso"], not cor: p["tempo_outro"]}
                     r = disputar(nosso, outro, cor, regras.tempo, p["incremento"], args.max_lances,
                         board, saida, linhas.append, latencia=args.latencia,

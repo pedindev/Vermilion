@@ -13,8 +13,9 @@ import chess.engine
 
 from .motor import abrir_motor, THREADS_PADRAO, HASH_PADRAO
 from .inteligencia import Jogador, MODOS
+from .aberturas import Repertorio
 from .relatorios import PASTA_RELATORIOS, registrar_lance, salvar_relatorio
-from .relogio import RelogioPartida, TempoEsgotado, entrada_com_prazo, formatar_relogios
+from .relogio import RelogioPartida, TempoEsgotado, entrada_com_prazo, formatar_relogios, ler_tempo
 
 
 def motivo_encerramento(tabuleiro):
@@ -80,7 +81,7 @@ def oferecer_relatorio(registros, resultado, cor, incremento, nome_motor, restan
 def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_motor,
              pasta_relatorios=PASTA_RELATORIOS, tempo=900, incremento=10, modo="completo",
              configuracao="", cor_inicial=None, contexto=None, acompanhamento=None,
-             tempo_adversario=None, agora=monotonic):
+             tempo_adversario=None, agora=monotonic, repertorio=None):
     if not isfinite(tempo) or tempo <= 0 or not isfinite(incremento) or incremento < 0:
         raise ValueError("Tempo deve ser positivo e incremento não negativo.")
     if cor_inicial is not None and type(cor_inicial) is not bool:
@@ -102,9 +103,11 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
         saida(f"Ritmo: {tempo / 60:g} minutos + {incremento:g} segundos por lance.\n")
         if contexto is not None:
             saida(f"Campanha: {contexto.objetivo} — {contexto.motivo}\n")
-        with conectar() as motor, Jogador(motor, modo, contexto=contexto) as jogador:
+        with conectar() as motor, Jogador(motor, modo, contexto=contexto, repertorio=repertorio) as jogador:
             nome_motor = motor.id.get("name", "Stockfish")
             saida(f"Motor conectado: {nome_motor}. Modo: {modo}.\n")
+            if repertorio is not None and repertorio.erro and modo == "completo":
+                saida("Repertório indisponível; usando a análise normal do Stockfish.\n")
             if configuracao:
                 saida(configuracao + "\n")
             inicial_outro = tempo if tempo_adversario is None else tempo_adversario
@@ -112,12 +115,14 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
             relogio = RelogioPartida(saldos[True], saldos[False], incremento, agora)
             saida("Relógios automáticos iniciados. Digite apenas o lance adversário.\n")
             relogio.iniciar(chess.WHITE)
+            fim = None
             try:
-                while not (fim := motivo_encerramento(tabuleiro)):
+                while fim is None:
                     turno = tabuleiro.turn
                     if relogio.saldos()[turno] <= 0:
                         raise TempoEsgotado(turno)
                     calculado = None
+                    fim_futuro = None
                     if turno == cor:
                         saida("IA pensando...\n")
                         atuais = relogio.saldos()
@@ -126,7 +131,8 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                         lance = calculado.lance
                         futura = tabuleiro.copy(stack=True)
                         futura.push(lance)
-                        if not motivo_encerramento(futura):
+                        fim_futuro = motivo_encerramento(futura)
+                        if not fim_futuro:
                             jogador.preparar(futura, calculado)
                     else:
                         try:
@@ -135,6 +141,16 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                         except TimeoutError:
                             raise TempoEsgotado(turno) from None
                         try:
+                            partes = texto.strip().lower().split()
+                            if partes and partes[0] == "relogios":
+                                if len(partes) != 3:
+                                    raise ValueError("Use: relogios TEMPO_BRANCAS TEMPO_PRETAS, por exemplo relogios 14:30.250 14:05.125.")
+                                relogio.ajustar(ler_tempo(partes[1]), ler_tempo(partes[2]))
+                                saldos = relogio.saldos()
+                                saida("Ajuste pelo relógio físico registrado. " + formatar_relogios(saldos) + "\n")
+                                if acompanhamento:
+                                    acompanhamento("relogio_fisico", tabuleiro, registros, saldos, resultado)
+                                continue
                             lance = ler_entrada(texto, tabuleiro)
                         except ValueError as erro:
                             saida(f"{erro}\n")
@@ -142,18 +158,19 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                     gasto = relogio.confirmar_lance(turno)
                     registro = registrar_lance(tabuleiro, lance, cor, calculado)
                     tabuleiro.push(lance)
-                    saldos = relogio.parar() if motivo_encerramento(tabuleiro) else relogio.saldos()
+                    fim = fim_futuro if calculado is not None else motivo_encerramento(tabuleiro)
+                    saldos = relogio.parar() if fim else relogio.saldos()
                     registro = replace(registro, tempo=gasto, saldo_brancas=saldos[True],
-                                       saldo_pretas=saldos[False], fonte_tempo="relogio_do_sistema")
+                                       saldo_pretas=saldos[False], fonte_tempo=relogio.fonte)
                     registros.append(registro)
                     if calculado is not None:
                         saida(f"Análise: {calculado.tempo:.2f}s | "
                               f"{calculado.detalhes.get('criterio', 'Stockfish')}.\n")
                     saida(f"{registro.numero}. {registro.autor} | {registro.cor} | {registro.uci}\n")
                     saida(mostrar_tabuleiro(tabuleiro) + "\n")
-                    saida(formatar_relogios(relogio.saldos()) + "\n")
+                    saida(formatar_relogios(saldos) + "\n")
                     if acompanhamento:
-                        acompanhamento("lance", tabuleiro, registros, relogio.saldos(), resultado)
+                        acompanhamento("lance", tabuleiro, registros, saldos, resultado)
                 else:
                     resultado = fim
             except TempoEsgotado as erro:
@@ -195,6 +212,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--motor", type=Path, help="Caminho do executável Stockfish")
     parser.add_argument("--modo", choices=MODOS, default="completo")
+    parser.add_argument("--sem-abertura", action="store_true", help="Desativar o repertório preparado")
     parser.add_argument("--threads", type=int, default=THREADS_PADRAO)
     parser.add_argument("--hash", dest="hash_mb", type=int, default=HASH_PADRAO)
     parser.add_argument("--tempo", type=float, default=900, help="Segundos iniciais; campeonato: 900")
@@ -207,6 +225,7 @@ def main(argv=None):
     try:
         executar(conectar=partial(abrir_motor, args.motor, args.threads, args.hash_mb),
                  tempo=args.tempo, incremento=args.incremento, modo=args.modo,
+                 repertorio=Repertorio.carregar() if args.modo == "completo" and not args.sem_abertura else None,
                  configuracao=f"Recursos: {args.threads} threads, {args.hash_mb} MB de hash.")
     except (OSError, chess.engine.EngineError, TimeoutError) as erro:
         print(f"Falha: {erro or type(erro).__name__}")

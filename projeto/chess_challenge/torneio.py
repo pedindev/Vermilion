@@ -9,29 +9,32 @@ import sqlite3
 
 import chess.engine
 
-from .campanha import Campanha, Confronto, Regras, Repositorio, FASES, OBJETIVOS, agora, numero
+from .campanha import Campanha, Regras, Repositorio, FASES, agora, numero
 from .motor import abrir_motor, THREADS_PADRAO, HASH_PADRAO
 from .inteligencia import MODOS
+from .aberturas import Repertorio
 from .partida import executar, motivo_encerramento
+from .relogio import ler_tempo
 
 ARQUIVO_PADRAO = Path(__file__).resolve().parents[1] / "dados" / "campanha.sqlite3"
 
 
 def segundos(texto):
     try:
-        if ":" in texto:
-            partes = texto.split(":")
-            if len(partes) != 2 or not partes[0].isdigit():
-                raise ValueError()
-            minutos, s = int(partes[0]), float(partes[1])
-            if not 0 <= s < 60:
-                raise ValueError()
-            valor = minutos * 60 + s
-        else:
-            valor = float(texto)
-        return numero(valor, "Relógio")
+        return ler_tempo(texto)
     except ValueError:
         raise argparse.ArgumentTypeError("Use segundos ou mm:ss, sem valores negativos.") from None
+
+
+def perguntar_duracao(entrada, saida):
+    while True:
+        texto = entrada("Duração total prevista de cada partida, em minutos [Enter se não informado]: ").strip()
+        if not texto:
+            return None
+        try:
+            return numero(float(texto.replace(",", ".")), "Duração prevista", True)
+        except ValueError:
+            saida("Informe um número positivo de minutos.")
 
 
 def perguntar_cor(entrada, saida, esperada=None, armageddon=False):
@@ -87,15 +90,24 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
     p["contexto"] = asdict(contexto)
     repo.salvar(campanha)
     saida(f"Confronto: {c.adversario} | {c.fase} | partida {p['numero']} | ID {p['id']}")
+    if p["duracao_prevista_minutos"] is not None:
+        saida(f"Duração prevista: {p['duracao_prevista_minutos']:g} minutos. É uma referência de agenda, sem corte automático.")
     saida("O histórico é salvo automaticamente no banco local. O TXT é exportado com sua autorização.")
 
     def acompanhar(evento, board, registros, saldos, resultado):
+        quantidade = len(p["registros"])
+        p["registros"].extend(asdict(r) for r in registros[quantidade:])
         p.update(fen_inicial=board.root().fen(), lances=[m.uci() for m in board.move_stack],
-                 registros=[asdict(r) for r in registros], saldo_estimado=saldos[p["cor"]],
+                 saldo_estimado=saldos[p["cor"]],
                  saldo_outro_estimado=saldos[not p["cor"]],
                  relogios_sistema={"brancas": saldos[True], "pretas": saldos[False]},
                  origem_relogios="sistema",
                  fen_atual=board.fen(), ultima_atualizacao=agora())
+        if evento == "relogio_fisico":
+            p.setdefault("ajustes_relogio", []).append(dict(data=agora(),
+                meio_lance=len(board.move_stack), brancas=saldos[True], pretas=saldos[False]))
+        if p.get("ajustes_relogio"):
+            p["origem_relogios"] = "sistema_com_ajuste_fisico"
         if evento == "fim":
             sugestao = board.result() if board.is_checkmate() else "1/2-1/2" if motivo_encerramento(board) else None
             if sugestao is None and min(saldos.values()) <= 0:
@@ -110,6 +122,7 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
                  tempo=p["tempo_nosso"], incremento=p["incremento"], modo=args.modo,
                  cor_inicial=p["cor"], contexto=contexto, acompanhamento=acompanhar,
                  tempo_adversario=p["tempo_outro"],
+                 repertorio=Repertorio.carregar() if args.modo == "completo" and not args.sem_abertura else None,
                  configuracao=f"{args.threads} threads, {args.hash_mb} MB. Confronto {c.id}; partida {p['id']}.")
     finally:
         # Uma falha não é convertida automaticamente em empate ou partida retomável.
@@ -133,22 +146,20 @@ def criar_parser():
     p.add_argument("--equipe", required=True)
     p.add_argument("--campeonato", default="III Chess Challenge")
     p.add_argument("--teste", action="store_true", help="Ritmo normal 300+1; Armageddon 300/240+0")
-    p.add_argument("--rodadas", type=int)
-    p.add_argument("--vagas", type=int)
-    p.add_argument("--equipes", type=int)
-    comando("status", "Mostrar histórico, tabela oficial e confronto atual")
+    p.add_argument("--duracao-prevista", dest="duracao_prevista_minutos", type=float,
+                   help="Minutos previstos na agenda; se omitido, será perguntado")
+    comando("status", "Mostrar vitórias, empates, derrotas e partidas")
     p = comando("confronto", "Cadastrar o próximo pareamento da organização")
     p.add_argument("--adversario", required=True)
-    p.add_argument("--fase", choices=FASES, required=True)
-    p.add_argument("--rodada", type=int, default=1)
+    p.add_argument("--fase", choices=FASES, default="classificacao")
+    p.add_argument("--rodada", type=int, help="Identificação opcional; por padrão segue a sequência de confrontos")
     p.add_argument("--formato", choices=("unica", "melhor-de-tres"), required=True)
     p.add_argument("--cor", choices=("brancas", "pretas"), help="Referência opcional; a cor será perguntada antes de jogar")
-    p.add_argument("--objetivo", choices=OBJETIVOS, default="equilibrado")
-    p.add_argument("--justificativa", default="")
     p = comando("jogar", "Jogar a próxima partida do confronto")
     p.add_argument("--cor-armageddon", choices=("brancas", "pretas"), help="Referência opcional; a cor sorteada será perguntada antes de jogar")
     p.add_argument("--motor", type=Path)
     p.add_argument("--modo", choices=MODOS, default="completo")
+    p.add_argument("--sem-abertura", action="store_true", help="Desativar o repertório preparado")
     p.add_argument("--threads", type=int, default=THREADS_PADRAO)
     p.add_argument("--hash", dest="hash_mb", type=int, default=HASH_PADRAO)
     p = comando("resultado", "Registrar ou corrigir resultado confirmado pelo árbitro")
@@ -160,18 +171,10 @@ def criar_parser():
     p.add_argument("--corrigir", help="Justificativa obrigatória para alterar um resultado anterior")
     p = comando("cancelar", "Cancelar uma tentativa pendente, sem inventar resultado")
     p.add_argument("--justificativa", required=True)
-    p = comando("tabela", "Importar JSON da classificação oficial, obtido localmente")
-    p.add_argument("--importar", type=Path, required=True)
-    p.add_argument("--rodada", type=int, required=True)
-    p.add_argument("--fonte", default="Organização")
     p = comando("regras", "Configurar definições confirmadas pela organização")
-    for flag in ("tempo", "incremento", "incremento-armageddon", "armageddon-brancas", "armageddon-pretas",
-                 "pontos-vitoria", "pontos-empate", "pontos-derrota"):
+    for flag in ("tempo", "incremento", "incremento-armageddon", "armageddon-brancas", "armageddon-pretas"):
         p.add_argument("--" + flag, type=float)
-    p.add_argument("--rodadas", type=int)
-    p.add_argument("--vagas", type=int)
-    p.add_argument("--equipes", type=int)
-    p.add_argument("--classificacao-por-pontos", choices=("sim", "nao"))
+    p.add_argument("--duracao-prevista", dest="duracao_prevista_minutos", type=float)
     p.add_argument("--tres-obrigatorias", choices=("sim", "nao"))
     p = comando("arbitragem", "Registrar decisão oficial de classificação ou eliminação")
     p.add_argument("--situacao", choices=("classificado", "eliminado"), required=True)
@@ -185,31 +188,34 @@ def main(argv=None, entrada=input, saida=partial(print, flush=True), conectar=ab
     repo = Repositorio(args.arquivo)
     try:
         if args.acao == "criar":
+            if args.arquivo.exists():
+                raise ValueError("Já existe um arquivo nesse caminho. Use outra campanha.")
+            duracao = args.duracao_prevista_minutos
+            if duracao is None:
+                duracao = perguntar_duracao(entrada, saida)
             regras = Regras(tempo=300 if args.teste else 900, incremento=1 if args.teste else 10,
-                            rodadas=args.rodadas, vagas=args.vagas, equipes=args.equipes)
+                            duracao_prevista_minutos=duracao)
             repo.criar(Campanha(args.equipe, args.campeonato, regras))
             saida(f"Campanha criada: {args.arquivo}")
+            saida(f"Relógios: {regras.tempo / 60:g} minutos por equipe + {regras.incremento:g} segundos por lance.")
             return 0
         campanha = repo.carregar()
         if args.acao == "status":
-            saida(json.dumps(dict(resumo=campanha.resumo(), regras=asdict(campanha.regras),
+            regras_publicas = {k: v for k, v in asdict(campanha.regras).items() if k != "legado"}
+            saida(json.dumps(dict(resumo=campanha.resumo(), regras=regras_publicas,
                 pendentes=[dict(confronto=c.id, partida=c.ativa) for c in campanha.confrontos if c.ativa]),
                 ensure_ascii=False, indent=2))
             return 0
         if args.acao == "confronto":
-            c = campanha.novo_confronto(args.adversario, fase=args.fase, rodada=args.rodada,
-                formato=args.formato, primeira_cor=None if args.cor is None else args.cor == "brancas",
-                objetivo_informado=args.objetivo, justificativa_objetivo=args.justificativa)
+            c = campanha.novo_confronto(args.adversario, fase=args.fase,
+                rodada=args.rodada if args.rodada is not None else len(campanha.confrontos) + 1,
+                formato=args.formato, primeira_cor=None if args.cor is None else args.cor == "brancas")
             repo.salvar(campanha)
             saida(f"Confronto cadastrado: {c.id}")
         elif args.acao == "jogar":
             if args.threads < 1 or args.hash_mb < 1:
                 raise ValueError("Threads e hash devem ser positivos.")
             jogar_campanha(campanha, repo, args, entrada, saida, conectar)
-        elif args.acao == "tabela":
-            campanha.registrar_tabela(json.loads(args.importar.read_text(encoding="utf-8-sig")), args.rodada, args.fonte)
-            repo.salvar(campanha)
-            saida("Classificação oficial registrada; posições não foram estimadas por nossos resultados.")
         elif args.acao == "regras":
             if any(c.ativa for c in campanha.confrontos):
                 raise ValueError("Não altere regras com partida pendente.")
@@ -221,8 +227,6 @@ def main(argv=None, entrada=input, saida=partial(print, flush=True), conectar=ab
                     setattr(campanha.regras, nome, valor)
             if args.tres_obrigatorias:
                 campanha.regras.encerrar_ao_decidir = args.tres_obrigatorias == "nao"
-            if args.classificacao_por_pontos:
-                campanha.regras.classificacao_por_pontos_confirmada = args.classificacao_por_pontos == "sim"
             campanha.regras.validar()
             if campanha.confrontos and not campanha.confrontos[-1].partidas:
                 campanha.confrontos[-1].regras_aplicadas = asdict(campanha.regras)
@@ -260,7 +264,7 @@ def main(argv=None, entrada=input, saida=partial(print, flush=True), conectar=ab
                     relogios = p["relogios_sistema"]
                     nosso = relogios["brancas" if p["cor"] else "pretas"]
                     outro = relogios["pretas" if p["cor"] else "brancas"]
-                    origem = "sistema"
+                    origem = p.get("origem_relogios", "sistema")
                 else:
                     raise ValueError("Partida antiga sem relógios automáticos: informe os dois saldos ao registrar o resultado.")
                 dados = dict(placar=args.placar, motivo=args.motivo,
@@ -272,6 +276,9 @@ def main(argv=None, entrada=input, saida=partial(print, flush=True), conectar=ab
                 p["origem_relogios"] = origem
             repo.salvar(campanha)
             saida(json.dumps(c.situacao(campanha.regras), ensure_ascii=False))
+        return 0
+    except (EOFError, KeyboardInterrupt):
+        saida("Operação cancelada.")
         return 0
     except (ValueError, OSError, sqlite3.Error, chess.engine.EngineError, TimeoutError) as erro:
         saida(f"Não foi possível executar: {erro}")
