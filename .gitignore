@@ -16,6 +16,9 @@ projeto/tests/testes de campeonato/relatórios/*
 *.sqlite3-shm
 *.log
 
+# Guia de comandos apenas local; instruções do repositório ficam no README
+/COMANDOS_CAMPEONATO.txt
+
 # Configuração pessoal e arquivos temporários
 .env
 .env.*

@@ -50,10 +50,33 @@ cd /d/XADREZ/projeto && ./.venv/Scripts/python.exe -X utf8 jogar.py campeonato
 
 Cada execução acompanha uma única partida, salva os dados e encerra. Execute
 o mesmo comando antes da próxima; o histórico e os desempates são recuperados.
-Guia curto: [comando do campeonato](COMANDOS_CAMPEONATO.txt).
+
+Na primeira vez, informe equipe e duração prevista (Enter se não souber).
+Em cada novo confronto, informe adversário, fase, formato e nossa cor.
+As fases disponíveis são classificação, oitavas, quartas, semifinal, final e
+terceiro lugar; os formatos são partida única e melhor de três, conforme o
+pareamento da organização. Durante a partida, digite somente o lance adversário
+em UCI, por exemplo `e7e5`. O programa calcula e aplica nossos lances.
+
+O ritmo normal é **15 minutos +10 segundos por lance**, com quatro threads e
+512 MB de hash. A duração prevista é uma referência de agenda, sem corte da análise.
+
+Em qualquer fase, um empate no placar é decidido pelo maior tempo restante;
+se os tempos também forem iguais, o sistema prepara o Armageddon para a próxima
+execução. Na melhor de três, compara a soma dos tempos ao final do confronto.
+O Armageddon usa cinco minutos para brancas e quatro para pretas, sem incremento;
+empate favorece as pretas. Informe a cor sorteada pela organização.
+
+Se o árbitro encerrar a partida, digite `fim` no campo do lance adversário e
+informe o resultado na própria tela. Para ajustar os relógios físicos, use
+`relogios 14:30.250 14:05.125`, sempre na ordem BRANCAS PRETAS.
 
 O banco fica em `projeto/dados/campeonato.sqlite3`. Cada partida também gera
 um LOG técnico em `projeto/dados/logs/`, para entrega à banca.
+O banco guarda jogadas, análises, resultados e relógios de todas as partidas;
+preserve-o entre as execuções. Uma partida interrompida fica pendente de
+resultado oficial. Se essa pergunta aparecer antes do cadastro do adversário,
+o programa encontrou uma partida anterior ainda pendente.
 
 ## Verificar e testar
 

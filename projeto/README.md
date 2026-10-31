@@ -45,7 +45,8 @@ Uma partida interrompida fica pendente de resultado oficial, sem retomada
 automática do tabuleiro. Se o programa pedir um resultado antes de cadastrar
 um adversário, encontrou uma partida pendente no banco existente.
 
-O guia curto está em `../COMANDOS_CAMPEONATO.txt`. Os subcomandos `campanha criar`,
+As instruções de operação também estão no [README principal](../README.md).
+Os subcomandos `campanha criar`,
 `confronto`, `jogar`, `resultado`, `regras` e `arbitragem` continuam disponíveis
 para manutenção e compatibilidade, mas não são necessários na operação normal.
 
