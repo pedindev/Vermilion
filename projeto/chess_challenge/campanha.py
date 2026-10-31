@@ -377,6 +377,11 @@ class Repositorio:
         if campanha.revisao != linha[0]:
             raise ValueError("Revisão do banco inconsistente.")
         campanha.validar()
+        # Os arquivos acompanham a pasta dados; o banco pode vir de outro computador.
+        for c in campanha.confrontos:
+            for p in c.partidas:
+                if p.get("arquivo_log"):
+                    p["arquivo_log"] = str((self.caminho.parent / "logs" / f"{p['id']}.log").resolve())
         return campanha
 
     def salvar(self, campanha):

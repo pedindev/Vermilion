@@ -6,13 +6,16 @@ from math import isfinite
 import logging
 from pathlib import Path
 import shutil
+import sys
 from time import monotonic
 
 import chess
 import chess.engine
 
 
-MOTOR_PADRAO = Path(__file__).resolve().parents[2] / "stockfish" / "stockfish-windows-x86-64-universal.exe"
+NOME_MOTOR = {"win32": "stockfish-windows-x86-64-universal.exe",
+              "linux": "stockfish-linux-x86-64-universal"}.get(sys.platform, "stockfish")
+MOTOR_PADRAO = Path(__file__).resolve().parents[2] / "stockfish" / NOME_MOTOR
 THREADS_PADRAO = 4
 HASH_PADRAO = 512
 

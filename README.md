@@ -24,6 +24,8 @@ python -m venv .venv
 ```
 
 No Linux, use `.venv/bin/python` no lugar de `.venv/Scripts/python.exe`.
+O pacote em [Versão Linux](<Versão Linux/README.md>) contém os scripts de
+preparação e início para o notebook com Zorin OS e Ryzen 5 5625U.
 
 O Stockfish é uma dependência externa. Obtenha a versão 19 no
 [site oficial](https://stockfishchess.org/download/) e coloque o executável em
@@ -77,6 +79,58 @@ O banco guarda jogadas, análises, resultados e relógios de todas as partidas;
 preserve-o entre as execuções. Uma partida interrompida fica pendente de
 resultado oficial. Se essa pergunta aparecer antes do cadastro do adversário,
 o programa encontrou uma partida anterior ainda pendente.
+Entre Windows e Linux, copie o banco para `projeto/dados/campeonato.sqlite3`
+com os programas encerrados, entre partidas. Copie também `dados/logs/` para
+levar os LOGs. O histórico e o confronto continuam válidos no outro sistema;
+os caminhos dos LOGs são recalculados ao abrir o banco.
+
+## Computadores da equipe e compartilhamento da campanha
+
+| Papel | Notebook | Sistema e motor |
+| --- | --- | --- |
+| Principal | Acer Nitro 5, Ryzen 7 5800H, 16 GB de RAM | Windows, Stockfish 19 x86-64 Universal |
+| Secundário / reserva | Ryzen 5 5625U | Zorin OS, Stockfish 19 Linux x86-64 Universal |
+
+A equipe leva os dois notebooks preparados. Um único computador opera a partida;
+a mudança para o secundário ocorre entre partidas, preservando o histórico.
+Ambos usam o mesmo controlador Python, quatro threads, 512 MB de hash e as
+mesmas regras. Cada execução acompanha uma partida e depois encerra.
+
+O compartilhamento usa o mesmo banco SQLite, sem conversão de formato:
+
+1. Encerre o programa nos dois computadores ao terminar a partida.
+2. Guarde uma cópia dos dados que já estiverem no destino. Transfira por pendrive
+   a pasta `projeto/dados/` do notebook que acabou de jogar para `projeto/dados/`
+   da versão que será usada na próxima partida.
+3. Inicie o programa no notebook de destino. Ele recupera a equipe, os resultados,
+   o confronto, os lances, as análises e os relógios armazenados.
+
+No Windows, a origem padrão é `D:/XADREZ/projeto/dados/`. No Linux, o destino é
+`Versão Linux/projeto/dados/`, no local escolhido para a pasta no notebook.
+Ao voltar ao Windows, transfira a versão mais recente dos dados no sentido inverso.
+O arquivo `campeonato.sqlite3` basta para o histórico; copiar `dados/` inteira
+preserva também os LOGs para a banca. Não há mesclagem de bancos nem sincronização
+pela rede ou pelo GitHub. Cada notebook mantém seu próprio ambiente `.venv`.
+Uma partida interrompida continua pendente de decisão oficial, sem retomada
+automática do tabuleiro em outro computador.
+
+No Zorin OS, abra um terminal dentro de `Versão Linux`. Com o Stockfish já
+extraído na pasta `stockfish/`, prepare uma vez antes do evento:
+
+```bash
+bash preparar.sh
+```
+
+Depois, para cada partida:
+
+```bash
+bash iniciar.sh
+```
+
+As dependências Python fornecidas são instaladas localmente, sem download.
+O motor Linux deve ser obtido antes do evento pelo
+[download oficial da versão 19](https://github.com/official-stockfish/Stockfish/releases/download/sf_19/stockfish-linux-x86-64-universal.tar.gz).
+O [README do Linux](<Versão Linux/README.md>) detalha a instalação e a conferência.
 
 ## Verificar e testar
 
@@ -97,7 +151,7 @@ O Armageddon usa 5 minutos para brancas, 4 para pretas e nenhum incremento,
 conforme a configuração adotada pela equipe. Detalhes e pendências do regulamento
 estão no [manual do projeto](projeto/README.md).
 
-A validação de 31/10/2026 aprovou 279 testes, incluindo oito integrações com o
+A validação de 31/10/2026 aprovou 280 testes, incluindo oito integrações com o
 Stockfish real. Isso verifica funcionamento; uma campanha completa em 5+1 e ganho
 de força ainda precisam ser avaliados.
 

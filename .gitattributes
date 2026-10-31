@@ -2,4 +2,6 @@
 *.py text eol=lf
 *.md text eol=lf
 *.txt text eol=lf
+*.sh text eol=lf
+*.whl binary
 *.pdf binary

@@ -1,8 +1,10 @@
 from dataclasses import asdict
 from itertools import product
 from contextlib import closing
+from pathlib import Path
 import json
 import sqlite3
+import shutil
 
 import chess
 import pytest
@@ -156,6 +158,35 @@ def test_persistencia_reabre_historico_e_impede_duas_sessoes(tmp_path):
     with pytest.raises(ValueError):
         repo.criar(Campanha("Não sobrescrever"))
     assert repo.carregar().equipe == "Equipe"
+
+
+def test_banco_copiado_reabre_campanha_e_relocaliza_logs_sem_perder_decisoes(tmp_path):
+    origem = Repositorio(tmp_path / "Windows" / "dados" / "campeonato.sqlite3")
+    campanha = Campanha("Equipe")
+    c = campanha.novo_confronto("Outra", fase="final", formato="melhor-de-tres")
+    p = concluir(c, campanha.regras, "V", nosso=130.125, outro=100.250)
+    board = chess.Board()
+    board.push_uci("e2e4")
+    p.update(lances=["e2e4"], fen_atual=board.fen(),
+             arquivo_log=f"D:\\XADREZ\\projeto\\dados\\logs\\{p['id']}.log")
+    origem.criar(campanha)
+    logs = origem.caminho.parent / "logs"
+    logs.mkdir()
+    (logs / f"{p['id']}.log").write_text("Log preservado", encoding="utf-8")
+    destino = origem.caminho.parents[2] / "Linux" / "dados"
+    shutil.copytree(origem.caminho.parent, destino)
+    repo = Repositorio(destino / "campeonato.sqlite3")
+    atual = repo.carregar()
+    salvo = atual.confrontos[0].concluidas[0]
+    assert salvo["lances"] == ["e2e4"] and salvo["saldo_nosso_ms"] == 130125
+    assert Path(salvo["arquivo_log"]) == (destino / "logs" / f"{p['id']}.log").resolve()
+    assert Path(salvo["arquivo_log"]).read_text(encoding="utf-8") == "Log preservado"
+    assert atual.contexto(atual.confrontos[0]).objetivo == "proteger_vantagem"
+    proxima = atual.confrontos[0].iniciar(atual.regras)
+    assert proxima["cor"] is False and proxima["numero"] == 2
+    repo.salvar(atual)
+    assert len(repo.carregar().confrontos[0].partidas) == 2
+    assert len(origem.carregar().confrontos[0].partidas) == 1
 
 
 def test_banco_rejeita_historico_ilegal_sem_perder_estado_anterior(tmp_path):

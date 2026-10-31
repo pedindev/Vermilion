@@ -153,7 +153,7 @@ Os testes verificam placares e cores, Armageddon nos dois formatos, frações de
 segundo, ajustes físicos, migração de bancos, integridade dos históricos,
 limites do repertório e comunicação real com o motor. Testes funcionais e
 baterias curtas não demonstram superioridade competitiva.
-Validação de 31/10/2026: 279 testes passaram, incluindo oito integrações com o
+Validação de 31/10/2026: 280 testes passaram, incluindo oito integrações com o
 Stockfish real. Não foi executado um confronto completo de 5+1 nesta revisão.
 
 ## Organização e origem
