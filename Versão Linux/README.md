@@ -6,8 +6,9 @@ seleciona os recursos adequados do processador. Usamos quatro threads e 512 MB
 de hash, ritmo normal 15+10 e Armageddon 5/4 sem incremento.
 
 Este é o computador secundário da equipe. O principal usa Windows. Cada partida
-é operada em um único notebook; o Linux fica preparado para ser usado quando
-necessário, com a transferência da campanha entre partidas.
+é operada em um único notebook. O uso do Linux como substituto entre partidas
+deve ser confirmado com a organização, pois o item 6 do FAQ prevê um notebook
+por equipe durante as partidas.
 
 ## Obter o Stockfish após clonar o GitHub
 
@@ -59,11 +60,22 @@ partida, inclusive na melhor de três ou no Armageddon. O histórico é recupera
 
 Sim, o mesmo banco SQLite funciona nos dois sistemas, sem conversão.
 
-1. Encerre o programa nos dois computadores, entre as partidas.
-2. Copie a pasta `D:/XADREZ/projeto/dados/` para `projeto/dados/` dentro desta
-   pasta no Linux, usando um pendrive. Guarde antes uma cópia dos dados do destino.
-3. Execute `bash iniciar.sh`. A equipe, os resultados, os relógios, as análises
-   e o estado do confronto serão recuperados.
+O transporte planejado é pelo WhatsApp Web, **entre partidas e com autorização
+da organização para usar a conexão no intervalo**:
+
+1. Encerre o programa nos dois computadores após o fim oficial da partida.
+2. Guarde uma cópia dos dados do destino. No Windows, compacte a pasta
+   `D:/XADREZ/projeto/dados/` em `dados.zip` e envie como documento no WhatsApp Web.
+3. No Linux, baixe o ZIP e extraia dentro de `projeto/` nesta pasta. O resultado
+   deve ser `projeto/dados/campeonato.sqlite3` e `projeto/dados/logs/`.
+4. Feche o WhatsApp e desligue a internet antes da próxima partida, respeitando
+   a verificação do árbitro. Execute `bash iniciar.sh` para recuperar a campanha.
+
+O [FAQ, item 14](../documentos/rules.txt) proíbe acesso externo durante as
+partidas e exige Wi-Fi e dados móveis desligados no início de cada jogo.
+Não há autorização expressa para WhatsApp nos intervalos; confirme com a organização
+antes de adotar esse procedimento. Pendrive é uma alternativa sem internet,
+também a combinar com a organização.
 
 O banco `campeonato.sqlite3` basta para recuperar o estado da campanha.
 A pasta `projeto/dados/` inteira leva também os LOGs já gerados para a banca.
@@ -71,8 +83,8 @@ Os caminhos dos LOGs são ajustados ao novo diretório ao abrir o banco.
 Se já houver outro banco no destino, guarde uma cópia dele antes de substituir.
 Ao voltar ao Windows, faça o mesmo processo com a versão mais recente dos dados.
 Use uma campanha em um computador por vez; bancos separados não são mesclados.
-O compartilhamento é uma cópia entre partidas, sem sincronização pela rede nem
-uso do GitHub para transportar o banco. Não transporte os ambientes `.venv`.
+O compartilhamento é uma cópia manual entre partidas, sem sincronização automática
+nem uso do GitHub para transportar o banco. Não transporte os ambientes `.venv`.
 O formato SQLite é [portável entre sistemas](https://www.sqlite.org/onefile.html).
 
 A transferência preserva o histórico, mas uma partida interrompida continua

@@ -91,26 +91,41 @@ os caminhos dos LOGs são recalculados ao abrir o banco.
 | Principal | Acer Nitro 5, Ryzen 7 5800H, 16 GB de RAM | Windows, Stockfish 19 x86-64 Universal |
 | Secundário / reserva | Ryzen 5 5625U | Zorin OS, Stockfish 19 Linux x86-64 Universal |
 
-A equipe leva os dois notebooks preparados. Um único computador opera a partida;
-a mudança para o secundário ocorre entre partidas, preservando o histórico.
+A equipe planeja levar os dois notebooks preparados. Um único computador opera
+a partida. A eventual mudança para o secundário será feita entre partidas e
+deve ser confirmada com a organização, pois o item 6 do FAQ prevê um notebook
+por equipe durante as partidas.
 Ambos usam o mesmo controlador Python, quatro threads, 512 MB de hash e as
 mesmas regras. Cada execução acompanha uma partida e depois encerra.
 
-O compartilhamento usa o mesmo banco SQLite, sem conversão de formato:
+O compartilhamento usa o mesmo banco SQLite, sem conversão de formato.
+O transporte planejado é pelo WhatsApp Web, como documento, **somente entre
+partidas e se a organização autorizar a conexão nesse intervalo**:
 
-1. Encerre o programa nos dois computadores ao terminar a partida.
-2. Guarde uma cópia dos dados que já estiverem no destino. Transfira por pendrive
-   a pasta `projeto/dados/` do notebook que acabou de jogar para `projeto/dados/`
-   da versão que será usada na próxima partida.
-3. Inicie o programa no notebook de destino. Ele recupera a equipe, os resultados,
-   o confronto, os lances, as análises e os relógios armazenados.
+1. Depois do encerramento oficial da partida, feche o programa nos dois notebooks.
+2. Guarde uma cópia dos dados que já estiverem no destino. Compacte a pasta
+   `projeto/dados/` do notebook que acabou de jogar em `dados.zip`.
+3. Envie `dados.zip` pelo WhatsApp Web como documento. No destino, baixe e
+   extraia dentro de `projeto/`, mantendo `projeto/dados/campeonato.sqlite3`
+   e `projeto/dados/logs/` nos mesmos caminhos relativos.
+4. Encerre o uso do WhatsApp e desligue a internet antes da próxima partida,
+   respeitando a verificação do árbitro. Inicie o programa no notebook de destino;
+   ele recupera equipe, resultados, confronto, lances, análises e relógios salvos.
+
+O [FAQ, item 14](documentos/rules.txt) proíbe requisições externas durante as
+partidas e exige Wi-Fi e dados móveis desligados, com verificação no início de
+cada jogo. O texto não autoriza expressamente WhatsApp nos intervalos. Portanto,
+esse transporte é uma possibilidade técnica, com autorização ainda a confirmar,
+e não deve ser apresentado como procedimento já aprovado. O pendrive é uma
+alternativa de cópia sem internet, a combinar com a organização.
 
 No Windows, a origem padrão é `D:/XADREZ/projeto/dados/`. No Linux, o destino é
 `Versão Linux/projeto/dados/`, no local escolhido para a pasta no notebook.
 Ao voltar ao Windows, transfira a versão mais recente dos dados no sentido inverso.
 O arquivo `campeonato.sqlite3` basta para o histórico; copiar `dados/` inteira
 preserva também os LOGs para a banca. Não há mesclagem de bancos nem sincronização
-pela rede ou pelo GitHub. Cada notebook mantém seu próprio ambiente `.venv`.
+automática: a transferência é manual, e o GitHub não transporta a campanha.
+Cada notebook mantém seu próprio ambiente `.venv`.
 Uma partida interrompida continua pendente de decisão oficial, sem retomada
 automática do tabuleiro em outro computador.
 
