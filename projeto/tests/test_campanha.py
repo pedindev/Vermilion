@@ -247,10 +247,10 @@ def test_eliminacao_bloqueia_avanco_mas_permite_disputa_de_terceiro_lugar():
 @pytest.mark.parametrize("fase,cor,resultado", list(product(
     ("classificacao", "oitavas", "quartas", "semifinal", "final", "terceiro-lugar"),
     (True, False), "VED")))
-def test_partida_unica_empatada_tem_um_armageddon_em_qualquer_fase(fase, cor, resultado):
+def test_partida_unica_empatada_e_tempos_iguais_tem_um_armageddon_em_qualquer_fase(fase, cor, resultado):
     campanha = Campanha("Equipe", regras=Regras(duracao_prevista_minutos=25))
     c = campanha.novo_confronto("Outra", fase=fase)
-    normal = concluir(c, campanha.regras, "E", nosso=10.001, outro=20.002)
+    normal = concluir(c, campanha.regras, "E", nosso=10.001, outro=10.001)
     assert normal["duracao_prevista_minutos"] == 25
     assert (normal["tempo_nosso"], normal["tempo_outro"], normal["incremento"]) == (900, 900, 10)
     assert c.situacao(campanha.regras)["status"] == "armageddon"
@@ -266,6 +266,67 @@ def test_partida_unica_empatada_tem_um_armageddon_em_qualquer_fase(fase, cor, re
         c.iniciar(campanha.regras)
     if fase == "classificacao":
         assert campanha.novo_confronto("Próxima equipe")
+
+
+@pytest.mark.parametrize("fase", ("classificacao", "oitavas", "quartas", "semifinal", "final", "terceiro-lugar"))
+@pytest.mark.parametrize("nosso,outro,ganhou", [(10.001, 10, True), (10, 10.001, False)])
+def test_unica_empatada_decide_por_tempo_antes_do_armageddon(fase, nosso, outro, ganhou):
+    campanha = Campanha("Equipe")
+    c = campanha.novo_confronto("Outra", fase=fase)
+    p = concluir(c, campanha.regras, "E", nosso=nosso, outro=outro)
+    situacao = c.situacao(campanha.regras)
+    esperado = ("vitoria" if ganhou else "derrota") if fase == "classificacao" else ("classificado" if ganhou else "eliminado")
+    assert situacao["status"] == esperado and situacao["criterio"] == "Soma dos relógios finais"
+    assert p["resultado"] == "E" and campanha.resumo()["empates"] == 1
+    with pytest.raises(ValueError):
+        c.iniciar(campanha.regras)
+
+
+def test_unica_sem_saldos_finais_fica_pendente_sem_inventar_armageddon():
+    c, regras = Confronto("Outra", "oitavas"), Regras()
+    concluir(c, regras, "E", nosso=None, outro=None)
+    assert c.situacao(regras)["status"] == "relogios_pendentes"
+    with pytest.raises(ValueError):
+        c.iniciar(regras)
+
+
+@pytest.mark.parametrize("fase", ("classificacao", "oitavas", "final"))
+def test_contexto_da_unica_usa_apenas_relogios_do_confronto_atual(fase):
+    campanha = Campanha("Equipe")
+    concluir(campanha.novo_confronto("Anterior"), campanha.regras, "D", nosso=1, outro=800)
+    c = campanha.novo_confronto("Atual", fase=fase)
+    ctx = campanha.contexto(c)
+    assert ctx.desempate_por_tempo and ctx.saldo_acumulado == 0
+    assert ctx.com_relogios(100, 100).objetivo == "equilibrado"
+    atras = ctx.com_relogios(100, 200)
+    assert atras.objetivo == "buscar_vitoria" and atras.evitar_empate
+    frente = ctx.com_relogios(200, 100)
+    assert frente.objetivo == "preservar_empate" and not frente.empate_classifica
+    assert not ctx.com_relogios(100, None).evitar_empate
+
+
+@pytest.mark.parametrize("rodadas", (1, 3, 5))
+def test_classificacao_nao_elimina_por_derrota_nem_fixa_numero_de_rodadas(rodadas):
+    campanha = Campanha("Equipe")
+    for rodada in range(1, rodadas + 1):
+        c = campanha.novo_confronto(f"Equipe {rodada}", rodada=rodada)
+        concluir(c, campanha.regras, "D")
+        assert c.situacao(campanha.regras)["status"] == "derrota"
+    eliminatoria = campanha.novo_confronto("Oitavas", fase="oitavas", rodada=rodadas + 1)
+    concluir(eliminatoria, campanha.regras, "D")
+    with pytest.raises(ValueError):
+        campanha.novo_confronto("Quartas", fase="quartas")
+
+
+def test_armageddon_antigo_incompativel_com_saldos_nao_apaga_historico():
+    c, regras = Confronto("Outra", "final"), Regras()
+    p = concluir(c, regras, "E", nosso=30, outro=30)
+    c.cor_armageddon = False
+    arm = concluir(c, regras, "E")
+    c.corrigir(p["id"], "Correção do relógio oficial", placar="1/2-1/2", motivo="Empate",
+               saldo_nosso=30, saldo_outro=40)
+    assert c.situacao(regras)["status"] == "revisao_pendente"
+    assert len(c.concluidas) == 2 and c.concluidas[-1]["id"] == arm["id"]
 
 
 def test_melhor_de_tres_nao_tem_armageddon_entre_as_partidas():

@@ -15,6 +15,7 @@ from .inteligencia import MODOS
 from .aberturas import Repertorio
 from .partida import executar, motivo_encerramento
 from .relogio import ler_tempo
+from .relatorios import RegistroLance, formatar_relatorio
 
 ARQUIVO_PADRAO = Path(__file__).resolve().parents[1] / "dados" / "campanha.sqlite3"
 
@@ -57,7 +58,8 @@ def perguntar_cor(entrada, saida, esperada=None, armageddon=False):
         return cor
 
 
-def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flush=True), conectar=abrir_motor):
+def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flush=True), conectar=abrir_motor,
+                   automatico=False):
     if not campanha.confrontos:
         raise ValueError("Cadastre o confronto antes de jogar.")
     c = campanha.confrontos[-1]
@@ -89,10 +91,15 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
     p["cor_confirmada_na_abertura"] = True
     p["contexto"] = asdict(contexto)
     repo.salvar(campanha)
-    saida(f"Confronto: {c.adversario} | {c.fase} | partida {p['numero']} | ID {p['id']}")
-    if p["duracao_prevista_minutos"] is not None:
+    if automatico:
+        etapa = "Armageddon" if armageddon else f"Partida {p['numero']}/{3 if c.formato == 'melhor-de-tres' else 1}"
+        saida(f"\n{c.adversario} | {etapa}\n")
+    else:
+        saida(f"Confronto: {c.adversario} | {c.fase} | partida {p['numero']} | ID {p['id']}")
+    if p["duracao_prevista_minutos"] is not None and not automatico:
         saida(f"Duração prevista: {p['duracao_prevista_minutos']:g} minutos. É uma referência de agenda, sem corte automático.")
-    saida("O histórico é salvo automaticamente no banco local. O TXT é exportado com sua autorização.")
+    if not automatico:
+        saida("O histórico é salvo automaticamente no banco local. O TXT é exportado com sua autorização.")
 
     def acompanhar(evento, board, registros, saldos, resultado):
         quantidade = len(p["registros"])
@@ -109,12 +116,18 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
         if p.get("ajustes_relogio"):
             p["origem_relogios"] = "sistema_com_ajuste_fisico"
         if evento == "fim":
-            sugestao = board.result() if board.is_checkmate() else "1/2-1/2" if motivo_encerramento(board) else None
+            fim_tabuleiro = motivo_encerramento(board)
+            sugestao = board.result() if board.is_checkmate() else "1/2-1/2" if fim_tabuleiro else None
             if sugestao is None and min(saldos.values()) <= 0:
                 perdeu = saldos[True] <= 0
                 sugestao = "1/2-1/2" if board.has_insufficient_material(not perdeu) else "0-1" if perdeu else "1-0"
             p.update(status="aguardando_resultado" if sugestao else "inconclusiva",
                      sugestao_placar=sugestao, observacao=resultado)
+            # Só a posição final confirma um resultado automaticamente. Interrupção
+            # e queda do contador local não substituem a decisão do árbitro.
+            if automatico and fim_tabuleiro:
+                c.finalizar(p["id"], sugestao, fim_tabuleiro,
+                            saldos[p["cor"]], saldos[not p["cor"]], origem="tabuleiro")
         repo.salvar(campanha)
 
     try:
@@ -123,14 +136,150 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
                  cor_inicial=p["cor"], contexto=contexto, acompanhamento=acompanhar,
                  tempo_adversario=p["tempo_outro"],
                  repertorio=Repertorio.carregar() if args.modo == "completo" and not args.sem_abertura else None,
-                 configuracao=f"{args.threads} threads, {args.hash_mb} MB. Confronto {c.id}; partida {p['id']}.")
+                 configuracao=f"{args.threads} threads, {args.hash_mb} MB. Confronto {c.id}; partida {p['id']}.",
+                 compacto=automatico, exportar_relatorio=not automatico)
     finally:
         # Uma falha não é convertida automaticamente em empate ou partida retomável.
         if p["status"] == "em_andamento":
             p.update(status="inconclusiva", observacao="Sessão encerrada; resultado oficial pendente.")
             repo.salvar(campanha)
-    saida("Os dois relógios foram salvos automaticamente. Registre o resultado oficial com: jogar.py campanha resultado.")
-    saida(f"Partida pendente: {p['id']} | sugestão do tabuleiro: {p.get('sugestao_placar') or 'nenhuma'}")
+        if automatico:
+            salvar_log_partida(c, p, repo)
+            repo.salvar(campanha)
+    if not automatico:
+        saida("Os dois relógios foram salvos automaticamente. Registre o resultado oficial com: jogar.py campanha resultado.")
+        saida(f"Partida pendente: {p['id']} | sugestão do tabuleiro: {p.get('sugestao_placar') or 'nenhuma'}")
+    return p
+
+
+def escolher(texto, opcoes, entrada, saida, padrao=None):
+    while True:
+        valor = entrada(texto).strip().lower()
+        if not valor and padrao is not None:
+            return padrao
+        if valor in opcoes:
+            return opcoes[valor]
+        saida("Escolha uma das opções indicadas.")
+
+
+def salvar_log_partida(confronto, partida, repo):
+    """O FAQ exige log por partida; o banco continua sendo a fonte do histórico."""
+    saldos = partida.get("relogios_sistema", {})
+    restante = saldos.get("brancas" if partida["cor"] else "pretas")
+    descricao = partida.get("motivo") or partida.get("observacao") or "Resultado pendente"
+    if partida.get("placar"):
+        descricao = f"{partida['placar']} | {descricao}"
+    texto = formatar_relatorio(partida["id"], [RegistroLance(**r) for r in partida["registros"]],
+        descricao, partida["cor"], partida["incremento"], "Stockfish", restante,
+        f"Adversário: {confronto.adversario} | Fase: {confronto.fase} | Partida {partida['numero']} | "
+        f"{'Armageddon' if partida['armageddon'] else confronto.formato}",
+        {True: saldos["brancas"], False: saldos["pretas"]} if saldos else None)
+    caminho = repo.caminho.parent / "logs" / f"{partida['id']}.log"
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    temporario = caminho.with_suffix(".log.tmp")
+    temporario.write_text(texto, encoding="utf-8")
+    temporario.replace(caminho)
+    partida["arquivo_log"] = str(caminho.resolve())
+
+
+def resolver_pendente(campanha, repo, entrada, saida):
+    """Apenas encerramentos externos ao tabuleiro precisam de um resultado informado."""
+    c = campanha.confrontos[-1]
+    p = c.ativa
+    saida("Histórico salvo. Informe o resultado confirmado pelo árbitro.")
+    resultado = escolher("[1] Vitória nossa | [2] Empate | [3] Derrota nossa | Enter: deixar pendente: ",
+                         {"1": "V", "2": "E", "3": "D"}, entrada, saida, padrao="pendente")
+    if resultado == "pendente":
+        return False
+    saldos = p.get("relogios_sistema")
+    if saldos is None:
+        # Bancos antigos podem não ter saldos. Não inventar tempos para desempate.
+        saida("Esta partida antiga não tem relógios salvos.")
+        while True:
+            try:
+                valores = entrada("Saldos oficiais BRANCAS PRETAS (ex.: 02:10.125 01:40.250): ").split()
+                if len(valores) != 2:
+                    raise ValueError("Informe os dois saldos.")
+                saldos = dict(zip(("brancas", "pretas"), map(ler_tempo, valores)))
+                break
+            except ValueError as erro:
+                saida(str(erro))
+        p["origem_relogios"] = "ajuste_oficial_pelo_operador"
+    placar = "1/2-1/2" if resultado == "E" else "1-0" if (resultado == "V") == p["cor"] else "0-1"
+    c.finalizar(p["id"], placar, "Resultado informado pelo operador conforme arbitragem",
+                saldos["brancas" if p["cor"] else "pretas"],
+                saldos["pretas" if p["cor"] else "brancas"], origem="operador")
+    repo.salvar(campanha)
+    salvar_log_partida(c, p, repo)
+    repo.salvar(campanha)
+    return True
+
+
+def mostrar_situacao(confronto, regras, saida):
+    situacao = confronto.situacao(regras)
+    status = situacao["status"]
+    if status == "em_disputa":
+        saida(f"Próxima execução: partida {situacao['partidas'] + 1} do mesmo confronto.")
+    elif status == "armageddon":
+        saida("Próxima execução: Armageddon. Brancas 5 min; pretas 4 min; sem incremento.")
+    elif status in ("vitoria", "derrota", "classificado", "eliminado"):
+        ganhou = status in ("vitoria", "classificado")
+        saida(f"Confronto encerrado: {'vencemos' if ganhou else 'perdemos'} | {situacao['criterio']}.")
+    else:
+        saida(f"Decisão pendente: {situacao['criterio']}.")
+    return status
+
+
+def iniciar_campeonato(args, entrada, saida, conectar):
+    """Cada execução joga uma partida e preserva o histórico para a próxima."""
+    repo = Repositorio(args.arquivo)
+    if repo.caminho.exists():
+        campanha = repo.carregar()
+    else:
+        equipe = ""
+        while not equipe:
+            equipe = entrada("Nome da nossa equipe: ").strip()
+        duracao = perguntar_duracao(entrada, saida)
+        campanha = Campanha(equipe, regras=Regras(duracao_prevista_minutos=duracao))
+        repo.criar(campanha)
+    resumo = campanha.resumo()
+    saida(f"\n{campanha.equipe} | {resumo['vitorias']} vitórias, {resumo['empates']} empates, {resumo['derrotas']} derrotas.")
+    saida("Salvamento automático ativo.\n")
+    c = campanha.confrontos[-1] if campanha.confrontos else None
+    if c and c.ativa:
+        if resolver_pendente(campanha, repo, entrada, saida):
+            saida("Resultado salvo.")
+            mostrar_situacao(c, campanha.regras, saida)
+        return
+    situacao = c.situacao(campanha.regras) if c else None
+    if c and situacao["status"] not in ("em_disputa", "armageddon"):
+        status = mostrar_situacao(c, campanha.regras, saida)
+        if status in ("relogios_pendentes", "revisao_pendente", "desempate_pendente"):
+            return
+        if c.fase in ("final", "terceiro-lugar") or (status == "eliminado" and c.fase != "semifinal"):
+            return
+        c = None
+    if c is None:
+        adversario = entrada("Adversário desta partida (Enter para encerrar): ").strip()
+        if not adversario:
+            return
+        fase = escolher("Fase [1] Classificação [2] Oitavas [3] Quartas [4] Semifinal [5] Final [6] 3º lugar: ",
+                         {str(i): f for i, f in enumerate(FASES, 1)}, entrada, saida)
+        formato = escolher("Formato [1] Partida única [2] Melhor de três: ",
+                            {"1": "unica", "2": "melhor-de-tres"}, entrada, saida)
+        c = campanha.novo_confronto(adversario, fase=fase, formato=formato,
+                                    rodada=len(campanha.confrontos) + 1, primeira_cor=None)
+        repo.salvar(campanha)
+    if c.situacao(campanha.regras)["status"] == "armageddon":
+        saida("Desempate: Armageddon. Brancas 5 min; pretas 4 min; sem incremento.")
+    p = jogar_campanha(campanha, repo, args, entrada, saida, conectar, automatico=True)
+    if p is None:  # Cancelamento antes de iniciar os relógios.
+        return
+    if c.ativa and not resolver_pendente(campanha, repo, entrada, saida):
+        return
+    resultado = {"V": "Vitória nossa", "E": "Empate", "D": "Derrota nossa"}[p["resultado"]]
+    saida(f"{resultado}. Partida salva.\n")
+    mostrar_situacao(c, campanha.regras, saida)
 
 
 def criar_parser():
@@ -155,13 +304,17 @@ def criar_parser():
     p.add_argument("--rodada", type=int, help="Identificação opcional; por padrão segue a sequência de confrontos")
     p.add_argument("--formato", choices=("unica", "melhor-de-tres"), required=True)
     p.add_argument("--cor", choices=("brancas", "pretas"), help="Referência opcional; a cor será perguntada antes de jogar")
-    p = comando("jogar", "Jogar a próxima partida do confronto")
-    p.add_argument("--cor-armageddon", choices=("brancas", "pretas"), help="Referência opcional; a cor sorteada será perguntada antes de jogar")
-    p.add_argument("--motor", type=Path)
-    p.add_argument("--modo", choices=MODOS, default="completo")
-    p.add_argument("--sem-abertura", action="store_true", help="Desativar o repertório preparado")
-    p.add_argument("--threads", type=int, default=THREADS_PADRAO)
-    p.add_argument("--hash", dest="hash_mb", type=int, default=HASH_PADRAO)
+    for nome, ajuda in (("jogar", "Jogar a próxima partida do confronto"),
+                        ("iniciar", "Jogar uma partida e salvar o histórico da campanha")):
+        p = comando(nome, ajuda)
+        p.add_argument("--cor-armageddon", choices=("brancas", "pretas"), help="Referência opcional; a cor sorteada será perguntada antes de jogar")
+        p.add_argument("--motor", type=Path)
+        p.add_argument("--modo", choices=MODOS, default="completo")
+        p.add_argument("--sem-abertura", action="store_true", help="Desativar o repertório preparado")
+        p.add_argument("--threads", type=int, default=THREADS_PADRAO)
+        p.add_argument("--hash", dest="hash_mb", type=int, default=HASH_PADRAO)
+        if nome == "iniciar":
+            p.set_defaults(arquivo=ARQUIVO_PADRAO.with_name("campeonato.sqlite3"))
     p = comando("resultado", "Registrar ou corrigir resultado confirmado pelo árbitro")
     p.add_argument("--partida", help="ID; por padrão usa a partida pendente")
     p.add_argument("--placar", choices=("1-0", "0-1", "1/2-1/2"), required=True, help="Perspectiva das cores, como no xadrez")
@@ -187,6 +340,11 @@ def main(argv=None, entrada=input, saida=partial(print, flush=True), conectar=ab
     args = parser.parse_args(argv)
     repo = Repositorio(args.arquivo)
     try:
+        if args.acao == "iniciar":
+            if args.threads < 1 or args.hash_mb < 1:
+                raise ValueError("Threads e hash devem ser positivos.")
+            iniciar_campeonato(args, entrada, saida, conectar)
+            return 0
         if args.acao == "criar":
             if args.arquivo.exists():
                 raise ValueError("Já existe um arquivo nesse caminho. Use outra campanha.")

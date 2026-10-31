@@ -1,0 +1,25 @@
+UMA EXECUÇÃO = UMA PARTIDA — GIT BASH
+
+cd /d/XADREZ/projeto && ./.venv/Scripts/python.exe -X utf8 jogar.py campeonato
+
+Execute esse mesmo comando antes de CADA partida.
+O sistema recupera o histórico, acompanha a partida, salva os dados e encerra.
+A próxima partida, inclusive da melhor de três ou Armageddon, exige nova execução.
+
+Na primeira vez: informe equipe e duração prevista (Enter se não souber).
+Novo confronto: informe adversário, fase, formato e nossa cor.
+Durante a partida: digite só o lance adversário, como e7e5.
+Os relógios normais são 15+10; usamos 4 threads e 512 MB.
+
+Desempate em qualquer fase: empate no placar -> maior tempo restante vence;
+se os tempos também forem iguais -> Armageddon na próxima execução.
+Na melhor de três, compare a soma dos tempos somente ao final do confronto.
+Armageddon: brancas 5 min, pretas 4 min, sem incremento; empate favorece pretas.
+A cor do Armageddon é a sorteada pela organização.
+
+Se o árbitro encerrar a partida, digite fim e informe o resultado na própria tela.
+Ajuste opcional dos relógios físicos: relogios 14:30.250 14:05.125 (BRANCAS PRETAS).
+
+Banco automático: D:/XADREZ/projeto/dados/campeonato.sqlite3
+LOG de cada partida para a banca: D:/XADREZ/projeto/dados/logs/
+Não apague o banco: ele guarda jogadas, análises, resultados e relógios de todas as partidas.

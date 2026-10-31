@@ -105,10 +105,10 @@ class Contexto:
         margem = self.saldo_acumulado + nosso - outro
         if margem < -2:
             return replace(self, objetivo="buscar_vitoria", evitar_empate=True,
-                motivo=f"Confronto empatado; saldo total estimado desfavorável em {-margem:.2f}s. Evitar empate imediato.")
+                motivo=f"Se a partida empatar, saldo total estimado desfavorável em {-margem:.2f}s. Evitar empate imediato.")
         if margem > 2:
             return replace(self, objetivo="preservar_empate",
-                motivo=f"Confronto empatado; saldo total estimado favorável em {margem:.2f}s. Não é classificação assegurada.")
+                motivo=f"Se a partida empatar, saldo total estimado favorável em {margem:.2f}s. Não é classificação assegurada.")
         return self
 
 
@@ -190,10 +190,8 @@ class Confronto:
             criterio = "Placar já decidido" if decidido else "Confronto em andamento"
         elif diferenca:
             status, criterio = vencedor(diferenca > 0), "Placar"
-        elif self.formato == "unica":
-            status, criterio = "armageddon", "Partida única empatada"
         elif saldos is None:
-            status, criterio = "relogios_pendentes", "Informar os dois saldos finais das três partidas"
+            status, criterio = "relogios_pendentes", "Informar os saldos finais das partidas do confronto"
         else:
             diferenca_ms = sum(p["saldo_nosso_ms"] - p["saldo_outro_ms"] for p in normais)
             status = vencedor(diferenca_ms > 0) if diferenca_ms else "armageddon"
@@ -224,7 +222,9 @@ class Confronto:
                 "Armageddon: brancas precisam vencer; empate classifica pretas.", not cor, cor,
                 **comum, armageddon=True)
         if self.formato == "unica":
-            return Contexto(motivo="Partida única: buscar o melhor resultado no tabuleiro; empate leva ao Armageddon.", **comum)
+            comum["saldo_acumulado"] = 0
+            return Contexto(motivo="Partida única: buscar a vitória; empate é decidido pelos relógios e, se iguais, pelo Armageddon.",
+                            **comum, desempate_por_tempo=True)
         diferenca = situacao["diferenca"] * (1 if lado_nosso else -1)
         if diferenca > 2 - n:
             return Contexto("preservar_empate", "Empate nesta partida garante o confronto.", True, False, **comum)

@@ -81,7 +81,8 @@ def oferecer_relatorio(registros, resultado, cor, incremento, nome_motor, restan
 def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_motor,
              pasta_relatorios=PASTA_RELATORIOS, tempo=900, incremento=10, modo="completo",
              configuracao="", cor_inicial=None, contexto=None, acompanhamento=None,
-             tempo_adversario=None, agora=monotonic, repertorio=None):
+             tempo_adversario=None, agora=monotonic, repertorio=None,
+             compacto=False, exportar_relatorio=True):
     if not isfinite(tempo) or tempo <= 0 or not isfinite(incremento) or incremento < 0:
         raise ValueError("Tempo deve ser positivo e incremento não negativo.")
     if cor_inicial is not None and type(cor_inicial) is not bool:
@@ -99,21 +100,26 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                 cor = chess.BLACK
             else:
                 saida("Escolha 1 ou 2.")
+        inicial_outro = tempo if tempo_adversario is None else tempo_adversario
         saida(f"Nossa equipe: {'Brancas' if cor else 'Pretas'}.\n")
-        saida(f"Ritmo: {tempo / 60:g} minutos + {incremento:g} segundos por lance.\n")
-        if contexto is not None:
+        if compacto and tempo != inicial_outro:
+            saida(f"Relógios: brancas {(tempo if cor else inicial_outro) / 60:g} min | "
+                  f"pretas {(inicial_outro if cor else tempo) / 60:g} min | +{incremento:g}s.\n")
+        else:
+            saida(f"Ritmo: {tempo / 60:g} minutos + {incremento:g} segundos por lance.\n")
+        if contexto is not None and not compacto:
             saida(f"Campanha: {contexto.objetivo} — {contexto.motivo}\n")
         with conectar() as motor, Jogador(motor, modo, contexto=contexto, repertorio=repertorio) as jogador:
             nome_motor = motor.id.get("name", "Stockfish")
-            saida(f"Motor conectado: {nome_motor}. Modo: {modo}.\n")
+            saida(f"{nome_motor} conectado.\n" if compacto else f"Motor conectado: {nome_motor}. Modo: {modo}.\n")
             if repertorio is not None and repertorio.erro and modo == "completo":
                 saida("Repertório indisponível; usando a análise normal do Stockfish.\n")
-            if configuracao:
+            if configuracao and not compacto:
                 saida(configuracao + "\n")
-            inicial_outro = tempo if tempo_adversario is None else tempo_adversario
             saldos = {cor: tempo, not cor: inicial_outro}
             relogio = RelogioPartida(saldos[True], saldos[False], incremento, agora)
-            saida("Relógios automáticos iniciados. Digite apenas o lance adversário.\n")
+            if not compacto:
+                saida("Relógios automáticos iniciados. Digite apenas o lance adversário.\n")
             relogio.iniciar(chess.WHITE)
             fim = None
             try:
@@ -142,6 +148,9 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                             raise TempoEsgotado(turno) from None
                         try:
                             partes = texto.strip().lower().split()
+                            if compacto and partes == ["fim"]:
+                                resultado = "Partida encerrada pelo operador; resultado oficial pendente."
+                                break
                             if partes and partes[0] == "relogios":
                                 if len(partes) != 3:
                                     raise ValueError("Use: relogios TEMPO_BRANCAS TEMPO_PRETAS, por exemplo relogios 14:30.250 14:05.125.")
@@ -163,10 +172,11 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                     registro = replace(registro, tempo=gasto, saldo_brancas=saldos[True],
                                        saldo_pretas=saldos[False], fonte_tempo=relogio.fonte)
                     registros.append(registro)
-                    if calculado is not None:
+                    if calculado is not None and not compacto:
                         saida(f"Análise: {calculado.tempo:.2f}s | "
                               f"{calculado.detalhes.get('criterio', 'Stockfish')}.\n")
-                    saida(f"{registro.numero}. {registro.autor} | {registro.cor} | {registro.uci}\n")
+                    analise = f" | {calculado.tempo:.2f}s" if compacto and calculado is not None else ""
+                    saida(f"{registro.numero}. {registro.autor} | {registro.cor} | {registro.uci}{analise}\n")
                     saida(mostrar_tabuleiro(tabuleiro) + "\n")
                     saida(formatar_relogios(saldos) + "\n")
                     if acompanhamento:
@@ -195,7 +205,7 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
         saldos = relogio.parar()
     if acompanhamento:
         acompanhamento("fim", tabuleiro, registros, saldos, resultado)
-    if registros and not sem_entrada:
+    if exportar_relatorio and registros and not sem_entrada:
         oferecer_relatorio(registros, resultado, cor, incremento, nome_motor, saldos[cor],
                            entrada, saida, pasta_relatorios, f"Modo: {modo}. {configuracao}",
                            relogios=saldos)
@@ -206,6 +216,9 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "campeonato":
+        from .torneio import main as main_campanha
+        return main_campanha(["iniciar", *argv[1:]])
     if argv and argv[0] == "campanha":
         from .torneio import main as main_campanha
         return main_campanha(argv[1:])

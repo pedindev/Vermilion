@@ -338,6 +338,31 @@ def test_pipeline_stockfish_verificacao_e_campanha_mudam_o_lance_e_o_log():
     assert "verificacao_campanha" in d.detalhes
 
 
+@pytest.mark.parametrize("fase", ["classificacao", "oitavas"])
+def test_seletor_da_partida_unica_considera_tempo_em_cada_decisao(fase):
+    from chess_challenge.campanha import Campanha
+    campanha = Campanha("Nossa")
+    c = campanha.novo_confronto("Outra", fase=fase)
+    board = chess.Board("6k1/5pp1/7p/8/8/8/5PPP/3Q2K1 w - - 0 1")
+
+    class Motor(MotorSimulado):
+        def play(self, *args, **kwargs):
+            r = super().play(*args, **kwargs)
+            r.info["score"] = chess.engine.PovScore(chess.engine.Cp(0), True)
+            return r
+
+        def analyse(self, *args, **kwargs):
+            return [info("d1d2", 0), info("d1d7", 0)]
+
+    ctx = campanha.contexto(c)
+    atras = Jogador(Motor(["d1d2"]), contexto=ctx).calcular(board, 100, 10, adversario=200)
+    frente = Jogador(Motor(["d1d2"]), contexto=ctx).calcular(board, 200, 10, adversario=100)
+    assert atras.lance.uci() == "d1d7" and atras.detalhes["contexto"]["evitar_empate"]
+    assert frente.lance.uci() == "d1d2"
+    assert frente.detalhes["contexto"]["objetivo"] == "preservar_empate"
+    assert not frente.detalhes["contexto"]["empate_classifica"]
+
+
 def test_contexto_respeita_lance_de_mate_da_busca_principal():
     motor = MotorComConfirmacao()
     play = motor.play

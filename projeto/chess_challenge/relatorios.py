@@ -1,4 +1,4 @@
-"""Registro legível e técnico da partida; escrita somente após autorização."""
+"""Registro técnico da partida; TXT opcional e LOG obrigatório do campeonato."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,8 +63,8 @@ def validar_nome(nome):
     return nome
 
 
-def salvar_relatorio(nome, registros, resultado, cor_equipe, incremento, motor,
-                     pasta=PASTA_RELATORIOS, restante=None, configuracao="", relogios=None):
+def formatar_relatorio(nome, registros, resultado, cor_equipe, incremento, motor,
+                       restante=None, configuracao="", relogios=None):
     nome = validar_nome(nome)
     linhas = [f"Partida: {nome}", f"Nossa equipe: {'Brancas' if cor_equipe else 'Pretas'}",
               f"Motor: {motor}", "Gestão da busca principal: original do Stockfish", configuracao,
@@ -85,7 +85,14 @@ def salvar_relatorio(nome, registros, resultado, cor_equipe, incremento, motor,
             linhas.append(f"  Decisão: {r.detalhes}")
         if r.saldo_brancas is not None and r.saldo_pretas is not None:
             linhas.append(f"  Relógios do sistema: Brancas {r.saldo_brancas:.3f}s | Pretas {r.saldo_pretas:.3f}s")
-    return salvar_texto(nome, "\n".join(linhas) + "\n", pasta)
+    return "\n".join(linhas) + "\n"
+
+
+def salvar_relatorio(nome, registros, resultado, cor_equipe, incremento, motor,
+                     pasta=PASTA_RELATORIOS, restante=None, configuracao="", relogios=None):
+    texto = formatar_relatorio(nome, registros, resultado, cor_equipe, incremento, motor,
+                               restante, configuracao, relogios)
+    return salvar_texto(nome, texto, pasta)
 
 
 def salvar_texto(nome, texto, pasta):

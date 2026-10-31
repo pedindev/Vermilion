@@ -40,6 +40,21 @@ A [declaração de origem do Stockfish](STOCKFISH.md) reúne os links do código
 da versão utilizada, seus autores, a licença e a identificação do executável local.
 O executável e seus fontes são instalados separadamente e não estão neste Git.
 
+## Operar o campeonato
+
+No Git Bash, um único comando:
+
+```bash
+cd /d/XADREZ/projeto && ./.venv/Scripts/python.exe -X utf8 jogar.py campeonato
+```
+
+Cada execução acompanha uma única partida, salva os dados e encerra. Execute
+o mesmo comando antes da próxima; o histórico e os desempates são recuperados.
+Guia curto: [comando do campeonato](COMANDOS_CAMPEONATO.txt).
+
+O banco fica em `projeto/dados/campeonato.sqlite3`. Cada partida também gera
+um LOG técnico em `projeto/dados/logs/`, para entrega à banca.
+
 ## Verificar e testar
 
 Dentro de `projeto`, no Git Bash:
@@ -59,7 +74,7 @@ O Armageddon usa 5 minutos para brancas, 4 para pretas e nenhum incremento,
 conforme a configuração adotada pela equipe. Detalhes e pendências do regulamento
 estão no [manual do projeto](projeto/README.md).
 
-A validação de 30/10/2026 aprovou 238 testes, incluindo sete integrações com o
+A validação de 31/10/2026 aprovou 279 testes, incluindo oito integrações com o
 Stockfish real. Isso verifica funcionamento; uma campanha completa em 5+1 e ganho
 de força ainda precisam ser avaliados.
 
@@ -68,8 +83,9 @@ e relatórios gerados ficam apenas no computador e são ignorados pelo Git.
 
 No jogo manual, digite somente o lance adversário em UCI. O sistema mantém os
 dois relógios, troca o turno, aplica o incremento e salva os saldos automaticamente.
-O registro do resultado reutiliza esses saldos. O contador local acompanha os
-eventos do programa, sem leitura sincronizada do relógio físico do árbitro.
+O resultado reconhecido pelo tabuleiro é salvo automaticamente com esses saldos.
+O contador local acompanha os eventos do programa, sem leitura sincronizada
+do relógio físico do árbitro.
 É possível ajustar os dois saldos durante o jogo com o comando opcional
 `relogios TEMPO_BRANCAS TEMPO_PRETAS`, ou informar os saldos oficiais no resultado.
 A criação da campanha pergunta a duração prevista da partida; essa informação
