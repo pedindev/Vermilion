@@ -99,25 +99,23 @@ Ambos usam o mesmo controlador Python, quatro threads, 512 MB de hash e as
 mesmas regras. Cada execução acompanha uma partida e depois encerra.
 
 O compartilhamento usa o mesmo banco SQLite, sem conversão de formato.
-O transporte planejado é pelo WhatsApp Web, como documento, **somente entre
-partidas e se a organização autorizar a conexão nesse intervalo**:
+O transporte será feito por um meio físico autorizado pela organização,
+**somente entre partidas e sem acesso à internet**. A equipe está consultando
+a organização sobre um cabo USB de transferência entre os notebooks.
+Após a confirmação, o procedimento será:
 
 1. Depois do encerramento oficial da partida, feche o programa nos dois notebooks.
-2. Guarde uma cópia dos dados que já estiverem no destino. Compacte a pasta
-   `projeto/dados/` do notebook que acabou de jogar em `dados.zip`.
-3. Envie `dados.zip` pelo WhatsApp Web como documento. No destino, baixe e
-   extraia dentro de `projeto/`, mantendo `projeto/dados/campeonato.sqlite3`
-   e `projeto/dados/logs/` nos mesmos caminhos relativos.
-4. Encerre o uso do WhatsApp e desligue a internet antes da próxima partida,
-   respeitando a verificação do árbitro. Inicie o programa no notebook de destino;
+2. Guarde uma cópia dos dados que já estiverem no destino.
+3. Copie a pasta `projeto/dados/` pelo meio físico aprovado, mantendo no destino
+   `projeto/dados/campeonato.sqlite3` e `projeto/dados/logs/`.
+4. Mantenha a internet desligada, respeitando a verificação do árbitro.
+   Inicie o programa no notebook de destino;
    ele recupera equipe, resultados, confronto, lances, análises e relógios salvos.
 
 O [FAQ, item 14](documentos/rules.txt) proíbe requisições externas durante as
 partidas e exige Wi-Fi e dados móveis desligados, com verificação no início de
-cada jogo. O texto não autoriza expressamente WhatsApp nos intervalos. Portanto,
-esse transporte é uma possibilidade técnica, com autorização ainda a confirmar,
-e não deve ser apresentado como procedimento já aprovado. O pendrive é uma
-alternativa de cópia sem internet, a combinar com a organização.
+cada jogo. A troca de notebook e o meio físico de transferência ainda dependem
+de confirmação da organização; não são apresentados como procedimentos aprovados.
 
 No Windows, a origem padrão é `D:/XADREZ/projeto/dados/`. No Linux, o destino é
 `Versão Linux/projeto/dados/`, no local escolhido para a pasta no notebook.

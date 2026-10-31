@@ -60,22 +60,21 @@ partida, inclusive na melhor de três ou no Armageddon. O histórico é recupera
 
 Sim, o mesmo banco SQLite funciona nos dois sistemas, sem conversão.
 
-O transporte planejado é pelo WhatsApp Web, **entre partidas e com autorização
-da organização para usar a conexão no intervalo**:
+O transporte será por um meio físico autorizado pela organização, **entre
+partidas e sem internet**. A equipe está consultando a organização sobre o uso
+de um cabo USB de transferência. Após a confirmação:
 
 1. Encerre o programa nos dois computadores após o fim oficial da partida.
-2. Guarde uma cópia dos dados do destino. No Windows, compacte a pasta
-   `D:/XADREZ/projeto/dados/` em `dados.zip` e envie como documento no WhatsApp Web.
-3. No Linux, baixe o ZIP e extraia dentro de `projeto/` nesta pasta. O resultado
-   deve ser `projeto/dados/campeonato.sqlite3` e `projeto/dados/logs/`.
-4. Feche o WhatsApp e desligue a internet antes da próxima partida, respeitando
-   a verificação do árbitro. Execute `bash iniciar.sh` para recuperar a campanha.
+2. Guarde uma cópia dos dados do destino.
+3. Copie `D:/XADREZ/projeto/dados/` pelo meio físico aprovado para `projeto/dados/`
+   nesta pasta no Linux, preservando o banco `campeonato.sqlite3` e a pasta `logs/`.
+4. Mantenha a internet desligada e respeite a verificação do árbitro.
+   Execute `bash iniciar.sh` para recuperar a campanha.
 
 O [FAQ, item 14](../documentos/rules.txt) proíbe acesso externo durante as
 partidas e exige Wi-Fi e dados móveis desligados no início de cada jogo.
-Não há autorização expressa para WhatsApp nos intervalos; confirme com a organização
-antes de adotar esse procedimento. Pendrive é uma alternativa sem internet,
-também a combinar com a organização.
+A troca de notebook e o meio físico de transferência ainda precisam ser
+confirmados com a organização antes de adotar esse procedimento.
 
 O banco `campeonato.sqlite3` basta para recuperar o estado da campanha.
 A pasta `projeto/dados/` inteira leva também os LOGs já gerados para a banca.
