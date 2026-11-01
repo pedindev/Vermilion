@@ -7,13 +7,9 @@ stockfish/
 
 # Estado das campanhas e relatórios gerados durante o uso
 projeto/dados/
-Versão Linux/projeto/dados/
 projeto/relatórios de partidas/
-Versão Linux/projeto/relatórios de partidas/
 projeto/tests/testes de campeonato/relatórios/*
 !projeto/tests/testes de campeonato/relatórios/.gitkeep
-Versão Linux/projeto/tests/testes de campeonato/relatórios/*
-!Versão Linux/projeto/tests/testes de campeonato/relatórios/.gitkeep
 *.sqlite3
 *.sqlite3-journal
 *.sqlite3-wal

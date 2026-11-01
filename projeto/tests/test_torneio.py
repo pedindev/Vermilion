@@ -234,6 +234,7 @@ def test_comando_unico_cria_joga_salva_resultado_e_simplifica_tela(tmp_path):
     assert not any("relatório" in p or "Resultado" in p for p in perguntas)
     assert not list(tmp_path.rglob("*.txt"))
     log = Path(p["arquivo_log"])
+    assert log.name == "partida_001.log" and p["numero_geral"] == 1
     assert list((tmp_path / "logs").glob("*.log")) == [log]
     texto_log = log.read_text(encoding="utf-8")
     assert all(campo in texto_log for campo in ("Outra", "0-1", "Brancas", "Pretas", "e7e5",
@@ -275,6 +276,7 @@ def test_armageddon_so_e_jogado_na_execucao_seguinte_apos_tres_empates(tmp_path,
         motores.append(MotorSimulado(brancas if cor else pretas))
         entradas.append(["1" if cor else "2", *(pretas if cor else brancas)])
     entradas[0] = ["Nossa", "", "Outra", "5", "2", *entradas[0]]
+    entradas[2].append("s")  # Autoriza somente depois de concluir o confronto.
     disponiveis = iter(motores)
 
     @contextmanager
@@ -290,6 +292,7 @@ def test_armageddon_so_e_jogado_na_execucao_seguinte_apos_tres_empates(tmp_path,
             assert not any(p["armageddon"] for p in c.partidas)
         if numero == 3:
             assert c.situacao(repo.carregar().regras)["status"] == "armageddon"
+            assert c.armageddon_autorizado
     campanha = Repositorio(tmp_path / "campanha.sqlite3").carregar()
     c = campanha.confrontos[0]
     assert len(c.concluidas) == 4 and c.ativa is None
@@ -303,6 +306,9 @@ def test_armageddon_so_e_jogado_na_execucao_seguinte_apos_tres_empates(tmp_path,
     assert (limite.white_inc, limite.black_inc) == (0, 0)
     assert c.situacao(campanha.regras)["status"] == ("eliminado" if cor_arm else "classificado")
     assert campanha.resumo()["empates"] == 4
+    assert not c.armageddon_autorizado
+    assert [Path(p["arquivo_log"]).name for p in c.concluidas] == [
+        f"partida_{n:03d}.log" for n in range(1, 5)]
 
 
 def test_sessao_tempos_desiguais_decidem_sem_abrir_armageddon(tmp_path):
@@ -387,7 +393,7 @@ def test_sessao_unica_empatada_encaminha_armageddon_e_guarda_os_dois_resultados(
     def conectar(*args):
         yield MotorSimulado([])
 
-    respostas = ["Nossa", "", "Outra", "5", "1", "2", "fim", "2"]
+    respostas = ["Nossa", "", "Outra", "5", "1", "2", "fim", "2", "s"]
     assert cli(tmp_path, "iniciar", "--modo", "original", entrada=entrada_da_partida(respostas), conectar=conectar) == 0
     repo = Repositorio(tmp_path / "campanha.sqlite3")
     c = repo.carregar().confrontos[0]
@@ -398,6 +404,70 @@ def test_sessao_unica_empatada_encaminha_armageddon_e_guarda_os_dois_resultados(
     assert [p["armageddon"] for p in c.concluidas] == [False, True]
     assert [p["resultado"] for p in c.concluidas] == ["E", "E"]
     assert c.situacao(campanha.regras)["status"] == "classificado"
+
+
+@pytest.mark.parametrize("resposta", ["n", "", EOFError()])
+def test_armageddon_sem_confirmacao_nao_cria_partida_nem_abre_motor(tmp_path, resposta):
+    campanha = Campanha("Nossa")
+    c = campanha.novo_confronto("Outra", formato="unica")
+    p = c.iniciar(campanha.regras)
+    c.finalizar(p["id"], "1/2-1/2", "Teste", 100, 100)
+    repo = Repositorio(tmp_path / "campanha.sqlite3")
+    repo.criar(campanha)
+
+    def proibido(*args):
+        pytest.fail("Não abrir motor sem confirmação do Armageddon.")
+
+    perguntas = []
+    ler = entrada_programada([resposta])
+
+    def entrada(prompt):
+        perguntas.append(prompt)
+        return ler(prompt)
+
+    assert cli(tmp_path, "iniciar", entrada=entrada, conectar=proibido) == 0
+    atual = repo.carregar().confrontos[0]
+    assert len(atual.partidas) == 1 and atual.ativa is None
+    assert not atual.armageddon_autorizado
+    assert atual.situacao(campanha.regras)["status"] == "armageddon"
+    assert len(perguntas) == 1 and "Iniciar Armageddon" in perguntas[0]
+
+
+def test_recusa_ao_fim_e_confirmacao_na_proxima_execucao(tmp_path, monkeypatch):
+    executar_real = torneio.executar
+    monkeypatch.setattr(torneio, "executar", lambda *a, **kw: executar_real(*a, **kw, agora=lambda: 0))
+
+    @contextmanager
+    def conectar(*args):
+        yield MotorSimulado([])
+
+    respostas = ["Nossa", "", "Outra", "5", "1", "2", "fim", "2", "n"]
+    assert cli(tmp_path, "iniciar", "--modo", "original",
+               entrada=entrada_da_partida(respostas), conectar=conectar) == 0
+    repo = Repositorio(tmp_path / "campanha.sqlite3")
+    c = repo.carregar().confrontos[0]
+    assert len(c.partidas) == 1 and not c.armageddon_autorizado
+    assert cli(tmp_path, "iniciar", "--modo", "original",
+               entrada=entrada_da_partida(["s", "2", "fim", "2"]), conectar=conectar) == 0
+    campanha = repo.carregar()
+    c = campanha.confrontos[0]
+    assert len(c.partidas) == 2 and c.partidas[-1]["armageddon"]
+    assert c.situacao(campanha.regras)["status"] == "classificado"
+
+
+def test_log_numerado_nao_sobrescreve_arquivo_de_outra_campanha(tmp_path):
+    campanha = Campanha("Nossa")
+    c = campanha.novo_confronto("Outra")
+    p = c.iniciar(campanha.regras)
+    p.update(numero_geral=1, registros=[])
+    repo = Repositorio(tmp_path / "campanha.sqlite3")
+    pasta = tmp_path / "logs"
+    pasta.mkdir()
+    caminho = pasta / "partida_001.log"
+    caminho.write_text("LOG anterior de outra campanha", encoding="utf-8")
+    with pytest.raises(FileExistsError, match="outra partida"):
+        torneio.salvar_log_partida(c, p, repo)
+    assert caminho.read_text(encoding="utf-8") == "LOG anterior de outra campanha"
 
 
 @pytest.mark.parametrize("fase", ["1", "2"])
@@ -460,6 +530,8 @@ def test_nova_execucao_troca_adversario_preservando_a_partida_anterior(tmp_path)
     campanha = Repositorio(tmp_path / "campanha.sqlite3").carregar()
     assert [(c.adversario, c.rodada) for c in campanha.confrontos] == [("Primeiro", 1), ("Segundo", 2)]
     assert campanha.resumo()["vitorias"] == 2
+    assert [Path(c.partidas[0]["arquivo_log"]).name for c in campanha.confrontos] == [
+        "partida_001.log", "partida_002.log"]
     assert cli(tmp_path, "iniciar", entrada=entrada_programada([""])) == 0
     assert Repositorio(tmp_path / "campanha.sqlite3").carregar().resumo() == campanha.resumo()
 

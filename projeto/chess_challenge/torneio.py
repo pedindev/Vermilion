@@ -69,6 +69,8 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
     if situacao["status"] not in ("em_disputa", "armageddon"):
         raise ValueError(f"Não é possível iniciar: {situacao['status']}.")
     armageddon = situacao["status"] == "armageddon"
+    if armageddon and not confirmar_armageddon(campanha, repo, c, entrada, saida):
+        return
     if args.cor_armageddon is not None:
         if not armageddon:
             raise ValueError("Sorteio do Armageddon só se aplica após o empate do confronto e dos relógios.")
@@ -88,6 +90,9 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
         c.primeira_cor = cor
     contexto = campanha.contexto(c)
     p = c.iniciar(campanha.regras)
+    p["numero_geral"] = sum(len(confronto.partidas) for confronto in campanha.confrontos)
+    if armageddon:
+        c.armageddon_autorizado = False  # A confirmação vale para esta partida.
     p["cor_confirmada_na_abertura"] = True
     p["contexto"] = asdict(contexto)
     repo.salvar(campanha)
@@ -169,17 +174,41 @@ def salvar_log_partida(confronto, partida, repo):
     descricao = partida.get("motivo") or partida.get("observacao") or "Resultado pendente"
     if partida.get("placar"):
         descricao = f"{partida['placar']} | {descricao}"
-    texto = formatar_relatorio(partida["id"], [RegistroLance(**r) for r in partida["registros"]],
+    numero_geral = partida["numero_geral"]
+    nome = f"partida_{numero_geral:03d}"
+    texto = formatar_relatorio(f"{numero_geral:03d}", [RegistroLance(**r) for r in partida["registros"]],
         descricao, partida["cor"], partida["incremento"], "Stockfish", restante,
-        f"Adversário: {confronto.adversario} | Fase: {confronto.fase} | Partida {partida['numero']} | "
+        f"ID: {partida['id']}\nAdversário: {confronto.adversario} | Fase: {confronto.fase} | Partida {partida['numero']} | "
         f"{'Armageddon' if partida['armageddon'] else confronto.formato}",
         {True: saldos["brancas"], False: saldos["pretas"]} if saldos else None)
-    caminho = repo.caminho.parent / "logs" / f"{partida['id']}.log"
+    caminho = repo.caminho.parent / "logs" / f"{nome}.log"
     caminho.parent.mkdir(parents=True, exist_ok=True)
+    if caminho.exists() and f"ID: {partida['id']}\n" not in caminho.read_text(encoding="utf-8"):
+        raise FileExistsError(f"O LOG {caminho.name} pertence a outra partida; preserve-o antes de reutilizar a pasta.")
     temporario = caminho.with_suffix(".log.tmp")
     temporario.write_text(texto, encoding="utf-8")
     temporario.replace(caminho)
     partida["arquivo_log"] = str(caminho.resolve())
+
+
+def confirmar_armageddon(campanha, repo, confronto, entrada, saida, proxima_execucao=False):
+    """A autorização fica salva; nenhum relógio começa ao responder esta pergunta."""
+    if confronto.armageddon_autorizado:
+        return True
+    complemento = " na próxima execução" if proxima_execucao else ""
+    resposta = escolher(f"Iniciar Armageddon{complemento}? [s/n]: ",
+                       {"s": True, "sim": True, "n": False, "nao": False, "não": False},
+                       entrada, saida, padrao=False)
+    confronto.armageddon_autorizado = resposta
+    repo.salvar(campanha)
+    if not resposta:
+        saida("Armageddon pendente. Nenhuma nova partida foi iniciada.")
+    return resposta
+
+
+def encerrar_confronto(campanha, repo, confronto, entrada, saida):
+    if mostrar_situacao(confronto, campanha.regras, saida) == "armageddon":
+        confirmar_armageddon(campanha, repo, confronto, entrada, saida, proxima_execucao=True)
 
 
 def resolver_pendente(campanha, repo, entrada, saida):
@@ -221,7 +250,7 @@ def mostrar_situacao(confronto, regras, saida):
     if status == "em_disputa":
         saida(f"Próxima execução: partida {situacao['partidas'] + 1} do mesmo confronto.")
     elif status == "armageddon":
-        saida("Próxima execução: Armageddon. Brancas 5 min; pretas 4 min; sem incremento.")
+        saida("Desempate por Armageddon: brancas 5 min; pretas 4 min; sem incremento.")
     elif status in ("vitoria", "derrota", "classificado", "eliminado"):
         ganhou = status in ("vitoria", "classificado")
         saida(f"Confronto encerrado: {'vencemos' if ganhou else 'perdemos'} | {situacao['criterio']}.")
@@ -249,7 +278,7 @@ def iniciar_campeonato(args, entrada, saida, conectar):
     if c and c.ativa:
         if resolver_pendente(campanha, repo, entrada, saida):
             saida("Resultado salvo.")
-            mostrar_situacao(c, campanha.regras, saida)
+            encerrar_confronto(campanha, repo, c, entrada, saida)
         return
     situacao = c.situacao(campanha.regras) if c else None
     if c and situacao["status"] not in ("em_disputa", "armageddon"):
@@ -278,8 +307,8 @@ def iniciar_campeonato(args, entrada, saida, conectar):
     if c.ativa and not resolver_pendente(campanha, repo, entrada, saida):
         return
     resultado = {"V": "Vitória nossa", "E": "Empate", "D": "Derrota nossa"}[p["resultado"]]
-    saida(f"{resultado}. Partida salva.\n")
-    mostrar_situacao(c, campanha.regras, saida)
+    saida(f"{resultado}. Partida salva: {Path(p['arquivo_log']).name}.\n")
+    encerrar_confronto(campanha, repo, c, entrada, saida)
 
 
 def criar_parser():

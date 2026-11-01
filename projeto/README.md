@@ -61,12 +61,16 @@ para manutenção e compatibilidade, mas não são necessários na operação no
 - Armageddon: brancas com 5 minutos, pretas com 4, sem incremento.
   Empate dá o confronto às pretas; o resultado da partida continua registrado
   como empate. A cor vem do sorteio oficial.
+- Quando os critérios indicarem Armageddon, o sistema pergunta se deseja
+  autorizá-lo para a próxima execução. `n` ou Enter mantém a pendência; `s`
+  salva a autorização. Ao reabrir, informe a cor sorteada antes de iniciar os
+  relógios. Sem autorização anterior, a confirmação é pedida antes da cor.
 - Tripla repetição e regra dos 50 lances atingidas são automáticas.
 - A duração prevista na agenda não decide resultado nem interrompe cálculos.
 - Na classificação, perder um confronto não impede cadastrar o seguinte.
   Nas eliminatórias, é necessário respeitar a eliminação ou uma decisão oficial.
 
-Essas definições incorporam as orientações da equipe de 31/10/2026.
+Essas definições incorporam as orientações da equipe de 01/11/2026.
 O FAQ original permanece em `../documentos/rules.txt`.
 
 A organização define rodadas, grupos, pontos, vagas e os classificados. O sistema
@@ -93,6 +97,19 @@ resultado oficial posterior atualiza o mesmo arquivo. A exportação TXT com
 autorização continua no modo manual antigo, em `relatórios de partidas/`.
 Registros antigos de tabelas e pontuação são preservados como dados legados,
 sem aparecer no resumo ou participar das decisões. Não é necessário apagar bancos.
+
+Os novos LOGs se chamam `partida_001.log`, `partida_002.log`, etc. A numeração
+segue todas as partidas da campanha, sem reiniciar a cada adversário, e inclui
+Armageddon. O cabeçalho identifica número, adversário e fase; o ID interno
+permanece para rastreabilidade. LOGs antigos com nome de ID são preservados;
+quando atualizados, também recebem uma versão com o nome numerado. O banco
+guarda o caminho do LOG atual. Um arquivo numerado de outra partida nunca é
+sobrescrito: para uma campanha nova, use uma pasta de dados própria.
+
+Os campos de busca adversários permanecem `N/D`, e a análise prévia do
+repertório fica separada da busca atual. Não atribuímos ao adversário métricas
+que não recebemos. A interpretação desses casos no item 9 deve ser confirmada
+com a banca.
 
 Interrupção não inventa empate nem retoma uma partida automaticamente.
 Ao reabrir o campeonato, uma partida pendente pede apenas o resultado oficial;
@@ -153,7 +170,7 @@ Os testes verificam placares e cores, Armageddon nos dois formatos, frações de
 segundo, ajustes físicos, migração de bancos, integridade dos históricos,
 limites do repertório e comunicação real com o motor. Testes funcionais e
 baterias curtas não demonstram superioridade competitiva.
-Validação de 31/10/2026: 280 testes passaram, incluindo oito integrações com o
+Validação de 01/11/2026: 286 testes passaram, incluindo oito integrações com o
 Stockfish real. Não foi executado um confronto completo de 5+1 nesta revisão.
 
 ## Organização e origem

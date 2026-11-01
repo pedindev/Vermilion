@@ -122,6 +122,7 @@ class Confronto:
     id: str = field(default_factory=lambda: uuid4().hex)
     partidas: list = field(default_factory=list)
     cor_armageddon: bool | None = None
+    armageddon_autorizado: bool = False
     objetivo_informado: str = "equilibrado"
     justificativa_objetivo: str = ""
     decisao_oficial: dict | None = None
@@ -139,6 +140,8 @@ class Confronto:
             raise ValueError("Partida normal registrada sem a definição da primeira cor.")
         if self.cor_armageddon is not None and type(self.cor_armageddon) is not bool:
             raise ValueError("Cor sorteada inválida.")
+        if type(self.armageddon_autorizado) is not bool:
+            raise ValueError("Confirmação do Armageddon inválida.")
         if self.objetivo_informado not in OBJETIVOS:
             raise ValueError("Objetivo inválido.")
         if self.objetivo_informado != "equilibrado" and not self.justificativa_objetivo.strip():
@@ -378,10 +381,18 @@ class Repositorio:
             raise ValueError("Revisão do banco inconsistente.")
         campanha.validar()
         # Os arquivos acompanham a pasta dados; o banco pode vir de outro computador.
+        numero_geral = 0
         for c in campanha.confrontos:
             for p in c.partidas:
+                numero_geral += 1
+                p["numero_geral"] = numero_geral
                 if p.get("arquivo_log"):
-                    p["arquivo_log"] = str((self.caminho.parent / "logs" / f"{p['id']}.log").resolve())
+                    nome = f"partida_{numero_geral:03d}.log"
+                    # Bancos antigos continuam apontando para seus LOGs originais.
+                    anterior = str(p["arquivo_log"]).replace("\\", "/").rsplit("/", 1)[-1]
+                    if anterior == f"{p['id']}.log":
+                        nome = anterior
+                    p["arquivo_log"] = str((self.caminho.parent / "logs" / nome).resolve())
         return campanha
 
     def salvar(self, campanha):

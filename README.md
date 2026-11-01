@@ -23,9 +23,7 @@ python -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -r requirements-dev.txt
 ```
 
-No Linux, use `.venv/bin/python` no lugar de `.venv/Scripts/python.exe`.
-O pacote em [Versão Linux](<Versão Linux/README.md>) contém os scripts de
-preparação e início para o notebook com Zorin OS e Ryzen 5 5625U.
+O ambiente preparado para a competição é Windows, no notebook da equipe.
 
 O Stockfish é uma dependência externa. Obtenha a versão 19 no
 [site oficial](https://stockfishchess.org/download/) e coloque o executável em
@@ -64,8 +62,12 @@ O ritmo normal é **15 minutos +10 segundos por lance**, com quatro threads e
 512 MB de hash. A duração prevista é uma referência de agenda, sem corte da análise.
 
 Em qualquer fase, um empate no placar é decidido pelo maior tempo restante;
-se os tempos também forem iguais, o sistema prepara o Armageddon para a próxima
-execução. Na melhor de três, compara a soma dos tempos ao final do confronto.
+se os tempos também forem iguais, pergunta se deseja iniciar o Armageddon na
+próxima execução. Responda `s` para autorizar ou `n` para deixar pendente.
+Ao executar novamente, informe apenas a cor sorteada; sem autorização salva,
+o sistema pede confirmação antes de perguntar a cor. Nenhum relógio começa
+antes dessa escolha. Na melhor de três, compara a soma dos tempos ao final
+do confronto; não oferece Armageddon entre as partidas normais.
 O Armageddon usa cinco minutos para brancas e quatro para pretas, sem incremento;
 empate favorece as pretas. Informe a cor sorteada pela organização.
 
@@ -74,76 +76,35 @@ informe o resultado na própria tela. Para ajustar os relógios físicos, use
 `relogios 14:30.250 14:05.125`, sempre na ordem BRANCAS PRETAS.
 
 O banco fica em `projeto/dados/campeonato.sqlite3`. Cada partida também gera
-um LOG técnico em `projeto/dados/logs/`, para entrega à banca.
+um LOG técnico em `projeto/dados/logs/`, para entrega à banca. Os novos arquivos
+são `partida_001.log`, `partida_002.log`, etc., seguindo a ordem geral da campanha,
+inclusive melhor de três e Armageddon. A tela informa o nome ao terminar.
+Atualizar um resultado pendente atualiza o mesmo LOG. Arquivos antigos com nome
+de ID são preservados; ao atualizar a partida, também é gerado o nome numerado.
 O banco guarda jogadas, análises, resultados e relógios de todas as partidas;
 preserve-o entre as execuções. Uma partida interrompida fica pendente de
 resultado oficial. Se essa pergunta aparecer antes do cadastro do adversário,
 o programa encontrou uma partida anterior ainda pendente.
-Entre Windows e Linux, copie o banco para `projeto/dados/campeonato.sqlite3`
-com os programas encerrados, entre partidas. Copie também `dados/logs/` para
-levar os LOGs. O histórico e o confronto continuam válidos no outro sistema;
-os caminhos dos LOGs são recalculados ao abrir o banco.
 
-## Computadores da equipe e compartilhamento da campanha
+## Notebook da equipe
 
-| Papel | Notebook | Sistema e motor |
-| --- | --- | --- |
-| Principal | Acer Nitro 5, Ryzen 7 5800H, 16 GB de RAM | Windows, Stockfish 19 x86-64 Universal |
-| Secundário / reserva | Ryzen 5 5625U | Zorin OS, Stockfish 19 Linux x86-64 Universal |
+A equipe usará um Acer Nitro 5 com Ryzen 7 5800H, 16 GB de RAM e Windows,
+com Stockfish 19 x86-64 Universal, quatro threads e 512 MB de hash.
+O uso de um notebook segue o item 6 do [FAQ](documentos/rules.txt).
+O banco e os LOGs permanecem nesse computador entre as partidas.
+Wi-Fi e dados móveis devem estar desligados durante os jogos, conforme o item 14.
 
-A equipe planeja levar os dois notebooks preparados. Um único computador opera
-a partida. A eventual mudança para o secundário será feita entre partidas e
-deve ser confirmada com a organização, pois o item 6 do FAQ prevê um notebook
-por equipe durante as partidas.
-Ambos usam o mesmo controlador Python, quatro threads, 512 MB de hash e as
-mesmas regras. Cada execução acompanha uma partida e depois encerra.
+## Entrega à organização
 
-O compartilhamento usa o mesmo banco SQLite, sem conversão de formato.
-O transporte será feito por um meio físico autorizado pela organização,
-**somente entre partidas e sem acesso à internet**. A equipe está consultando
-a organização sobre um cabo USB de transferência entre os notebooks.
-Após a confirmação, o procedimento será:
+O [edital](documentos/Chess-Challenge-III-1_cópia.pdf), na seção Requisitos de
+Software, determina o envio via Git em **04/11/2026**, pelo e-mail
+**icev@somosicev.com**. Envie o link do repositório e a identificação da versão
+entregue. Como o repositório é privado, conceda à organização acesso para validar
+o código. O edital não informa horário-limite nesse item.
 
-1. Depois do encerramento oficial da partida, feche o programa nos dois notebooks.
-2. Guarde uma cópia dos dados que já estiverem no destino.
-3. Copie a pasta `projeto/dados/` pelo meio físico aprovado, mantendo no destino
-   `projeto/dados/campeonato.sqlite3` e `projeto/dados/logs/`.
-4. Mantenha a internet desligada, respeitando a verificação do árbitro.
-   Inicie o programa no notebook de destino;
-   ele recupera equipe, resultados, confronto, lances, análises e relógios salvos.
-
-O [FAQ, item 14](documentos/rules.txt) proíbe requisições externas durante as
-partidas e exige Wi-Fi e dados móveis desligados, com verificação no início de
-cada jogo. A troca de notebook e o meio físico de transferência ainda dependem
-de confirmação da organização; não são apresentados como procedimentos aprovados.
-
-No Windows, a origem padrão é `D:/XADREZ/projeto/dados/`. No Linux, o destino é
-`Versão Linux/projeto/dados/`, no local escolhido para a pasta no notebook.
-Ao voltar ao Windows, transfira a versão mais recente dos dados no sentido inverso.
-O arquivo `campeonato.sqlite3` basta para o histórico; copiar `dados/` inteira
-preserva também os LOGs para a banca. Não há mesclagem de bancos nem sincronização
-automática: a transferência é manual, e o GitHub não transporta a campanha.
-Cada notebook mantém seu próprio ambiente `.venv`.
-Uma partida interrompida continua pendente de decisão oficial, sem retomada
-automática do tabuleiro em outro computador.
-
-No Zorin OS, abra um terminal dentro de `Versão Linux`. Com o Stockfish já
-extraído na pasta `stockfish/`, prepare uma vez antes do evento:
-
-```bash
-bash preparar.sh
-```
-
-Depois, para cada partida:
-
-```bash
-bash iniciar.sh
-```
-
-As dependências Python fornecidas são instaladas localmente, sem download.
-O motor Linux deve ser obtido antes do evento pelo
-[download oficial da versão 19](https://github.com/official-stockfish/Stockfish/releases/download/sf_19/stockfish-linux-x86-64-universal.tar.gz).
-O [README do Linux](<Versão Linux/README.md>) detalha a instalação e a conferência.
+Ao final de cada partida, entregue o respectivo `.log` à banca pelo meio indicado
+pela organização. Bancos e LOGs reais ficam apenas no computador; não são
+publicados neste repositório.
 
 ## Verificar e testar
 
@@ -164,7 +125,7 @@ O Armageddon usa 5 minutos para brancas, 4 para pretas e nenhum incremento,
 conforme a configuração adotada pela equipe. Detalhes e pendências do regulamento
 estão no [manual do projeto](projeto/README.md).
 
-A validação de 31/10/2026 aprovou 280 testes, incluindo oito integrações com o
+A validação de 01/11/2026 aprovou 286 testes, incluindo oito integrações com o
 Stockfish real. Isso verifica funcionamento; uma campanha completa em 5+1 e ganho
 de força ainda precisam ser avaliados.
 
@@ -184,6 +145,12 @@ não altera o ritmo de 15+10 nem impõe um corte à análise.
 O jogo manual no modo completo também usa um repertório local preparado com
 Stockfish, até dez meios-lances. Ao sair da linha conhecida, volta à análise
 normal. Os detalhes e o comando de preparação estão no manual do projeto.
+
+Na revisão do item 9, permanece uma questão de interpretação: os lances
+adversários têm métricas de busca `N/D`, pois não temos acesso ao motor adversário;
+as jogadas de repertório registram busca atual zero e análise prévia separada.
+O LOG identifica essas situações sem inventar dados. A aceitação desse formato
+deve ser alinhada com a banca.
 
 ## Licença
 
