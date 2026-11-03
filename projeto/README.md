@@ -106,10 +106,10 @@ quando atualizados, também recebem uma versão com o nome numerado. O banco
 guarda o caminho do LOG atual. Um arquivo numerado de outra partida nunca é
 sobrescrito: para uma campanha nova, use uma pasta de dados própria.
 
-Os campos de busca adversários permanecem `N/D`, e a análise prévia do
-repertório fica separada da busca atual. Não atribuímos ao adversário métricas
-que não recebemos. A interpretação desses casos no item 9 deve ser confirmada
-com a banca.
+Profundidade, nós, avaliação e PV documentam as análises do nosso motor.
+Os movimentos adversários são registrados com lance, cor e tempo observado;
+os dados internos do motor adversário ficam `N/D` (não disponível).
+A análise prévia do repertório é identificada separadamente da busca atual.
 
 Interrupção não inventa empate nem retoma uma partida automaticamente.
 Ao reabrir o campeonato, uma partida pendente pede apenas o resultado oficial;

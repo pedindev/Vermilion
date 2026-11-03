@@ -1,4 +1,4 @@
-"""Registro técnico da partida; TXT opcional e LOG obrigatório do campeonato."""
+"""Registra os dois lados e as métricas de busca do nosso motor."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -72,7 +72,9 @@ def formatar_relatorio(nome, registros, resultado, cor_equipe, incremento, motor
               f"Nosso saldo final no sistema: {restante:.3f}s" if restante is not None else "",
               "Avaliação na perspectiva das brancas.",
               "Tempos medidos pelo relógio do sistema; não são leitura do relógio físico.",
-              "N/D: dado não fornecido. Não temos os dados de busca internos do adversário.", ""]
+              "Profundidade, nós, avaliação e PV documentam as análises do nosso motor.",
+              "Nos movimentos adversários, registramos o lance e o tempo observado; as métricas do motor adversário ficam N/D.",
+              "N/D: dado não disponível. A análise prévia do repertório é identificada separadamente da busca atual.", ""]
     if relogios is not None:
         linhas.append(f"Saldos finais do sistema: Brancas {relogios[True]:.3f}s | Pretas {relogios[False]:.3f}s")
     for r in registros:

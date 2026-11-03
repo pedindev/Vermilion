@@ -146,11 +146,11 @@ O jogo manual no modo completo também usa um repertório local preparado com
 Stockfish, até dez meios-lances. Ao sair da linha conhecida, volta à análise
 normal. Os detalhes e o comando de preparação estão no manual do projeto.
 
-Na revisão do item 9, permanece uma questão de interpretação: os lances
-adversários têm métricas de busca `N/D`, pois não temos acesso ao motor adversário;
-as jogadas de repertório registram busca atual zero e análise prévia separada.
-O LOG identifica essas situações sem inventar dados. A aceitação desse formato
-deve ser alinhada com a banca.
+O LOG registra os movimentos dos dois lados. Profundidade, nós, avaliação e PV
+documentam as análises do nosso motor. Para o adversário, registra o lance e o
+tempo observado; as métricas internas do motor adversário aparecem como `N/D`
+(não disponível). Jogadas de repertório identificam a análise prévia separadamente
+da busca atual, que registra zero nós e profundidade nesses lances.
 
 ## Licença
 
