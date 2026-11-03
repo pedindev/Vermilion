@@ -1,4 +1,4 @@
-"""Stockfish original via UCI; o próprio motor administra o relógio recebido."""
+"""Stockfish via UCI; distribui o orçamento dos relógios e da janela total."""
 
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import sys
 from time import monotonic
+from threading import Timer
 
 import chess
 import chess.engine
@@ -55,26 +56,63 @@ def abrir_motor(caminho=None, threads=THREADS_PADRAO, hash_mb=HASH_PADRAO):
         yield motor
 
 
-def calcular_lance(motor, tabuleiro, restante, incremento=10, agora=monotonic, adversario=None):
+def calcular_lance(motor, tabuleiro, restante, incremento=10, agora=monotonic, adversario=None,
+                   janela_restante=None):
     if not isfinite(restante) or restante <= 0 or not isfinite(incremento) or incremento < 0:
         raise ValueError("Informe um saldo positivo e um incremento não negativo.")
-    # Não envia movetime, profundidade-alvo, sondagem ou regras próprias de parada.
-    # Envia os saldos por cor; o próprio Stockfish escolhe a duração da busca.
+    if adversario is not None and (not isfinite(adversario) or adversario < 0):
+        raise ValueError("Saldo adversário inválido.")
+    detalhes = {}
+    nosso_calculo, outro_calculo, incremento_calculo = restante, adversario, incremento
+    if janela_restante is not None:
+        if not isfinite(janela_restante) or janela_restante <= 0:
+            raise ValueError("A janela restante deve ser positiva e finita.")
+        # O relógio físico continua em 15+10. Para planejar dentro da janela
+        # global, divide-se o tempo restante proporcionalmente aos saldos reais.
+        # Incremento não prolonga a janela, portanto não cria orçamento extra.
+        disponivel = janela_restante - min(1.0, janela_restante * .05)
+        outro_saldo = restante if adversario is None else adversario
+        fracao = restante / (restante + outro_saldo)
+        nosso_calculo = min(restante, disponivel * fracao)
+        outro_calculo = min(outro_saldo, disponivel * (1 - fracao)) if adversario is not None else None
+        restringe = nosso_calculo < restante or (outro_calculo is not None and outro_calculo < adversario)
+        incremento_calculo = 0 if restringe else incremento
+        detalhes["planejamento_tempo"] = dict(janela_restante_s=janela_restante,
+            relogio_nosso_s=restante, relogio_adversario_s=adversario,
+            orcamento_nosso_s=nosso_calculo, orcamento_adversario_s=outro_calculo,
+            incremento_planejamento_s=incremento_calculo,
+            metodo="Divisão proporcional da janela total pelos saldos reais")
+    # Sem movetime, profundidade ou nós fixos: o Stockfish distribui o orçamento.
     if tabuleiro.turn == chess.WHITE:
-        limite = chess.engine.Limit(white_clock=restante, white_inc=incremento)
+        limite = chess.engine.Limit(white_clock=nosso_calculo, white_inc=incremento_calculo)
     else:
-        limite = chess.engine.Limit(black_clock=restante, black_inc=incremento)
+        limite = chess.engine.Limit(black_clock=nosso_calculo, black_inc=incremento_calculo)
     if adversario is not None:
-        if not isfinite(adversario) or adversario < 0:
-            raise ValueError("Saldo adversário inválido.")
         if tabuleiro.turn:
-            limite.black_clock, limite.black_inc = adversario, incremento
+            limite.black_clock, limite.black_inc = outro_calculo, incremento_calculo
         else:
-            limite.white_clock, limite.white_inc = adversario, incremento
+            limite.white_clock, limite.white_inc = outro_calculo, incremento_calculo
     inicio = agora()
-    resposta = motor.play(tabuleiro.copy(stack=True), limite, ponder=False,
-                          info=chess.engine.INFO_ALL)
+    if janela_restante is None:
+        resposta = motor.play(tabuleiro.copy(stack=True), limite, ponder=False,
+                              info=chess.engine.INFO_ALL)
+        info = resposta.info
+    else:
+        with motor.analysis(tabuleiro.copy(stack=True), limite, info=chess.engine.INFO_ALL) as busca:
+            def parar_busca():
+                try:
+                    busca.stop()
+                except (chess.engine.EngineError, RuntimeError):
+                    pass  # O motor pode ter encerrado junto com o temporizador.
+            parada = Timer(max(0, janela_restante - (agora() - inicio)), parar_busca)
+            parada.daemon = True
+            parada.start()
+            try:
+                resposta = busca.wait()
+                info = busca.info
+            finally:
+                parada.cancel()
     tempo = agora() - inicio
     if resposta.move is None or resposta.move not in tabuleiro.legal_moves:
         raise chess.engine.EngineError("Stockfish não retornou um lance legal.")
-    return LanceCalculado(resposta.move, tempo, resposta.info, resposta.ponder)
+    return LanceCalculado(resposta.move, tempo, info, resposta.ponder, detalhes)

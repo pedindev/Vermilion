@@ -1,9 +1,74 @@
 import chess
 import pytest
 
-from chess_challenge.relogio import RelogioPartida, TempoEsgotado, entrada_com_prazo
+from chess_challenge.relogio import (RelogioPartida, TempoEsgotado, entrada_com_prazo,
+                                    JanelaPartida, DuracaoEsgotada)
 from chess_challenge.partida import executar
 from test_base import MotorSimulado
+
+
+def test_duracao_total_conta_os_dois_turnos_sem_receber_incremento_ou_ajuste():
+    agora = [0]
+    janela = JanelaPartida(1, lambda: agora[0])
+    relogio = RelogioPartida(900, 900, 10, lambda: agora[0])
+    janela.iniciar()
+    relogio.iniciar()
+    agora[0] = 20
+    relogio.confirmar_lance(True)
+    agora[0] = 35
+    relogio.ajustar(900, 900)
+    assert janela.restante() == 25 and relogio.saldos() == {True: 900, False: 900}
+    with pytest.raises(ValueError, match="já está"):
+        janela.iniciar()
+    agora[0] = 60
+    with pytest.raises(DuracaoEsgotada):
+        janela.verificar()
+    assert min(relogio.saldos().values()) > 0
+
+
+@pytest.mark.parametrize("minutos", [0, -1, True, "25", float("nan"), float("inf"), 1e308])
+def test_duracao_total_invalida_e_rejeitada(minutos):
+    with pytest.raises(ValueError):
+        JanelaPartida(minutos)
+
+
+@pytest.mark.parametrize("nossa_cor", [True, False])
+def test_janela_termina_durante_calculo_ou_entrada_sem_aplicar_lance_tardio(tmp_path, nossa_cor):
+    agora, finais, saidas = [0], [], []
+
+    class Motor(MotorSimulado):
+        def play(self, *args, **kwargs):
+            agora[0] += 7
+            return super().play(*args, **kwargs)
+
+    def entrada(prompt):
+        agora[0] += 7
+        return "e2e4"
+
+    board = executar(entrada, saidas.append, conectar=lambda: Motor(["e2e4"]),
+        cor_inicial=nossa_cor, modo="original", tempo=900, incremento=10,
+        duracao_total_minutos=.1, agora=lambda: agora[0], exportar_relatorio=False,
+        acompanhamento=lambda e,b,r,s,x: finais.append((s,x)) if e == "fim" else None)
+    assert not board.move_stack
+    assert finais[-1][0] == {True: 893, False: 900}
+    assert "Duração total informada atingida" in finais[-1][1]
+    assert "Resultado oficial pendente" in finais[-1][1]
+    assert "Vitória" not in finais[-1][1] and "Empate" not in finais[-1][1]
+
+
+def test_prazo_de_entrada_e_limitado_pela_duracao_da_partida(tmp_path, monkeypatch):
+    import chess_challenge.partida as partida
+    prazos = []
+
+    def entrada_com_prazo(entrada, prompt, prazo):
+        prazos.append(prazo)
+        raise EOFError()
+
+    monkeypatch.setattr(partida, "entrada_com_prazo", entrada_com_prazo)
+    executar(lambda _: "", lambda _: None, conectar=lambda: MotorSimulado([]),
+        cor_inicial=False, modo="original", tempo=900, duracao_total_minutos=2,
+        agora=lambda: 0, exportar_relatorio=False)
+    assert prazos == [120]
 
 
 def test_dois_contadores_trocam_turno_aplicam_incremento_sem_cobrar_duas_vezes():
@@ -165,6 +230,24 @@ def test_comando_de_ajuste_so_muda_relogios_e_repassa_saldo_ao_motor(tmp_path):
     limite = motor.consultas[0][1]
     assert (limite.white_clock, limite.black_clock, limite.black_inc) == pytest.approx((870.125, 820.250, 10), abs=.02)
     assert all(r.fonte_tempo == "sistema_com_ajuste_fisico" for r in finais)
+
+
+@pytest.mark.motor_real
+def test_partida_real_com_duracao_total_e_relogios_independentes(tmp_path):
+    import json
+    from test_base import entrada_programada
+    finais = []
+    board = executar(entrada_programada(["e2e4", EOFError()]), lambda _: None,
+        cor_inicial=False, tempo=900, incremento=10, modo="completo",
+        duracao_total_minutos=.1, exportar_relatorio=False,
+        acompanhamento=lambda e,b,r,s,x: finais.append((r,s)) if e == "fim" else None)
+    assert len(board.move_stack) == 2 and board.is_valid()
+    registros, saldos = finais[-1]
+    assert registros[1].profundidade > 0 and registros[1].nos > 0
+    detalhes = json.loads(registros[1].detalhes)
+    assert 0 < detalhes["planejamento_tempo"]["janela_restante_s"] <= 6
+    assert detalhes["duracao_partida"]["total_s"] == 6
+    assert all(890 < saldo <= 910 for saldo in saldos.values())
 
 
 @pytest.mark.motor_real

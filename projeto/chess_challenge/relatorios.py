@@ -67,7 +67,7 @@ def formatar_relatorio(nome, registros, resultado, cor_equipe, incremento, motor
                        restante=None, configuracao="", relogios=None):
     nome = validar_nome(nome)
     linhas = [f"Partida: {nome}", f"Nossa equipe: {'Brancas' if cor_equipe else 'Pretas'}",
-              f"Motor: {motor}", "Gestão da busca principal: original do Stockfish", configuracao,
+              f"Motor: {motor}", "Busca principal: Stockfish; orçamento temporal do controlador quando há duração total.", configuracao,
               f"Incremento: {incremento:g}s", f"Resultado: {resultado}",
               f"Nosso saldo final no sistema: {restante:.3f}s" if restante is not None else "",
               "Avaliação na perspectiva das brancas.",

@@ -29,6 +29,36 @@ class TempoEsgotado(Exception):
         super().__init__(f"Tempo das {'brancas' if cor else 'pretas'} esgotado no sistema.")
 
 
+class DuracaoEsgotada(Exception):
+    """A janela total terminou; o resultado continua dependendo da arbitragem."""
+
+    def __init__(self):
+        super().__init__("Duração total informada atingida. Resultado oficial pendente da arbitragem.")
+
+
+class JanelaPartida:
+    def __init__(self, minutos=None, agora=monotonic):
+        if minutos is not None and (isinstance(minutos, bool) or not isinstance(minutos, (int, float))
+                                   or not isfinite(minutos * 60) or minutos <= 0):
+            raise ValueError("A duração total deve ser positiva e finita.")
+        self.total = None if minutos is None else minutos * 60
+        self.agora, self.inicio = agora, None
+
+    def iniciar(self):
+        if self.inicio is not None:
+            raise ValueError("A duração total da partida já está em andamento.")
+        self.inicio = self.agora()
+
+    def restante(self):
+        if self.total is None:
+            return None
+        return max(0, self.total - (self.agora() - self.inicio)) if self.inicio is not None else self.total
+
+    def verificar(self):
+        if self.restante() == 0:
+            raise DuracaoEsgotada()
+
+
 class RelogioPartida:
     def __init__(self, brancas, pretas, incremento, agora=monotonic):
         if (any(not isfinite(v) or v <= 0 for v in (brancas, pretas))
@@ -87,13 +117,15 @@ class RelogioPartida:
         return dict(self._saldos)
 
 
+def formatar_tempo(valor):
+    total_ms = round(max(0, valor) * 1000)
+    minutos, restante = divmod(total_ms, 60_000)
+    segundos, ms = divmod(restante, 1000)
+    return f"{minutos:02d}:{segundos:02d}.{ms:03d}"
+
+
 def formatar_relogios(saldos):
-    def formato(valor):
-        total_ms = round(max(0, valor) * 1000)
-        minutos, restante = divmod(total_ms, 60_000)
-        segundos, ms = divmod(restante, 1000)
-        return f"{minutos:02d}:{segundos:02d}.{ms:03d}"
-    return f"Relógios — Brancas: {formato(saldos[True])} | Pretas: {formato(saldos[False])}"
+    return f"Relógios — Brancas: {formatar_tempo(saldos[True])} | Pretas: {formatar_tempo(saldos[False])}"
 
 
 def entrada_com_prazo(entrada, prompt, limite):

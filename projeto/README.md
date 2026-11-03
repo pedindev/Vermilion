@@ -10,10 +10,11 @@ Um único comando no Git Bash:
 
     cd /d/XADREZ/projeto && ./.venv/Scripts/python.exe -X utf8 jogar.py campeonato
 
-Na primeira vez, informe a equipe e a duração prevista (opcional). Depois,
+Na primeira vez, informe a equipe e a duração total da partida (opcional). Depois,
 informe adversário, fase, formato e cor pelas perguntas da tela. O banco existente
 em `dados/campeonato.sqlite3` é reaproveitado; não precisa recriar a campanha.
-A duração prevista é apenas agenda: os relógios normais continuam em 15+10.
+A duração informada orienta o planejamento do tempo de análise; os relógios
+normais continuam em 15+10. Sem duração informada, o motor usa só esses relógios.
 
 Digite somente os lances adversários em UCI. O programa joga por nossa equipe,
 mostra cada lance e o tabuleiro, mantém os relógios e salva todos os dados.
@@ -66,7 +67,10 @@ para manutenção e compatibilidade, mas não são necessários na operação no
   salva a autorização. Ao reabrir, informe a cor sorteada antes de iniciar os
   relógios. Sem autorização anterior, a confirmação é pedida antes da cor.
 - Tripla repetição e regra dos 50 lances atingidas são automáticas.
-- A duração prevista na agenda não decide resultado nem interrompe cálculos.
+- A duração total informada é contada nos dois turnos e limita a janela da
+  partida normal. Ao terminar, interrompe busca/entrada e pede resultado oficial,
+  sem declarar automaticamente vitória, empate ou derrota. Na melhor de três,
+  cada partida começa uma nova janela. O Armageddon usa seus relógios próprios.
 - Na classificação, perder um confronto não impede cadastrar o seguinte.
   Nas eliminatórias, é necessário respeitar a eliminação ou uma decisão oficial.
 
@@ -117,8 +121,20 @@ Enter mantém a pendência sem inventar um resultado.
 
 ## Busca, aberturas e eficiência
 
-O Stockfish continua administrando a busca pelos relógios UCI: não acrescentamos
-limite de segundos, profundidade ou nós à busca principal. A GPU não é utilizada.
+O Stockfish continua distribuindo o tempo de busca pelos relógios UCI, sem
+movetime, profundidade ou nós fixos por lance. A GPU não é utilizada.
+
+Quando há duração total informada, o controlador divide o restante dessa janela
+proporcionalmente aos dois saldos reais, reservando até um segundo para operação.
+Esses orçamentos são usados somente no planejamento UCI; os relógios reais e os
+incrementos salvos continuam corretos. Se a janela restringir o orçamento, o
+planejamento não conta incrementos futuros como extensão do prazo global.
+Uma janela ampla preserva os saldos e incrementos normais enviados ao motor.
+A análise é interrompida com `stop` ao atingir o prazo total. As verificações
+adicionais do seletor e a espera pelo lance adversário também respeitam o restante.
+O LOG registra a duração configurada e os orçamentos nas análises. Ajustar o
+relógio físico não reinicia o contador total da partida. Esse planejamento não
+garante que uma partida de xadrez termine por mate dentro da janela disponível.
 
 No modo completo, o repertório local contém 61 posições preparadas offline com
 Stockfish 19: até dois milhões de nós por posição, com profundidades observadas
@@ -170,7 +186,7 @@ Os testes verificam placares e cores, Armageddon nos dois formatos, frações de
 segundo, ajustes físicos, migração de bancos, integridade dos históricos,
 limites do repertório e comunicação real com o motor. Testes funcionais e
 baterias curtas não demonstram superioridade competitiva.
-Validação de 01/11/2026: 286 testes passaram, incluindo oito integrações com o
+Validação de 03/11/2026: 305 testes passaram, incluindo dez integrações com o
 Stockfish real. Não foi executado um confronto completo de 5+1 nesta revisão.
 
 ## Organização e origem

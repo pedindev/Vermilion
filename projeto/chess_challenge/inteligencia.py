@@ -1,7 +1,7 @@
 """Antecipação especulativa e seleção autoral de candidatos quase equivalentes.
 
 Um único dono usa o motor por vez. Durante input, um trabalhador pesquisa a
-posição prevista; antes de jogar ele é parado e o relógio real é enviado ao SF.
+posição prevista; antes de jogar ele é parado e o orçamento temporal é enviado ao SF.
 """
 
 from dataclasses import asdict, dataclass, replace
@@ -13,6 +13,7 @@ import chess
 import chess.engine
 
 from .motor import calcular_lance
+from .relogio import DuracaoEsgotada
 from .estrategia import final_qualificante, decisao_por_regra, ordenar
 
 
@@ -245,13 +246,19 @@ class Jogador:
             previsao = decisao.info["pv"][1]
         self.antecipacao.iniciar(board, previsao)
 
-    def calcular(self, board, restante, incremento=10, adversario=None, agora=monotonic):
+    def calcular(self, board, restante, incremento=10, adversario=None, agora=monotonic,
+                 janela_restante=None):
         if not isfinite(restante) or restante <= 0 or not isfinite(incremento) or incremento < 0:
             raise ValueError("Informe saldo positivo e incremento não negativo.")
         if adversario is not None and (not isfinite(adversario) or adversario < 0):
             raise ValueError("Saldo adversário inválido.")
+        if janela_restante is not None and (not isfinite(janela_restante) or janela_restante <= 0):
+            raise ValueError("A janela restante deve ser positiva e finita.")
         inicio = agora()
         preparado = self.antecipacao.parar(board)
+        janela_busca = None if janela_restante is None else janela_restante - (agora() - inicio)
+        if janela_busca is not None and janela_busca <= 0:
+            raise DuracaoEsgotada()
         saldo = restante - (agora() - inicio)
         if saldo <= 0:
             raise ValueError("Tempo esgotado antes da escolha do lance.")
@@ -266,8 +273,15 @@ class Jogador:
                 return replace(abertura, tempo=agora() - inicio)
             # Ao sair da preparação, permanece na análise normal até o fim.
             self.repertorio = None
-        base = calcular_lance(self.motor, board, saldo, incremento, adversario=adversario)
-        detalhes = {"versao": VERSAO, "modo": self.modo, "original": base.lance.uci(),
+        janela_busca = None if janela_restante is None else janela_restante - (agora() - inicio)
+        if janela_busca is not None and janela_busca <= 0:
+            raise DuracaoEsgotada()
+        base = calcular_lance(self.motor, board, saldo, incremento, adversario=adversario,
+                              janela_restante=janela_busca)
+        # Verificações autorais também respeitam o prazo global, depois da busca.
+        if janela_restante is not None:
+            restante = min(restante, janela_restante)
+        detalhes = {**base.detalhes, "versao": VERSAO, "modo": self.modo, "original": base.lance.uci(),
                     "antecipacao": "acertou" if preparado.acerto else "errou" if preparado.previsao else "sem previsão",
                     "previsao": preparado.previsao, "segundos_antecipados": round(preparado.segundos, 3),
                     "nos_antecipados": preparado.nos, "ciclos": preparado.ciclos,

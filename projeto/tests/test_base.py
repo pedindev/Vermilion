@@ -53,6 +53,28 @@ class MotorSimulado:
             "pv": [move], "score": chess.engine.PovScore(chess.engine.Cp(20), board.turn),
             "depth": 20, "nodes": 10000})
 
+    def analysis(self, board, limit, *, info):
+        motor = self
+
+        class Busca:
+            info = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                self.stop()
+
+            def wait(self):
+                resposta = motor.play(board, limit, ponder=False, info=info)
+                self.info = resposta.info
+                return chess.engine.BestMove(resposta.move, resposta.ponder)
+
+            def stop(self):
+                pass
+
+        return Busca()
+
 
 @pytest.mark.parametrize("brancas", [True, False])
 def test_envia_relogio_e_incremento_ao_motor_sem_movetime(brancas):
@@ -67,6 +89,65 @@ def test_envia_relogio_e_incremento_ao_motor_sem_movetime(brancas):
     assert enviado.move_stack == board.move_stack and enviado is not board
     assert (limite.white_clock, limite.black_clock) == ((890, None) if brancas else (None, 890))
     assert (limite.white_inc, limite.black_inc) == ((10, None) if brancas else (None, 10))
+
+
+@pytest.mark.parametrize("cor", [True, False])
+def test_janela_planeja_busca_sem_modificar_relogio_real_ou_fixar_tempo_por_lance(cor):
+    board = chess.Board()
+    if not cor:
+        board.push_uci("e2e4")
+    motor = MotorSimulado(["e2e4" if cor else "e7e5"])
+    d = calcular_lance(motor, board, 900, 10, adversario=900, janela_restante=1500)
+    limite = motor.consultas[0][1]
+    assert limite.white_clock == limite.black_clock == 749.5
+    assert limite.white_inc == limite.black_inc == 0
+    assert limite.time is limite.depth is limite.nodes is None
+    assert d.detalhes["planejamento_tempo"]["relogio_nosso_s"] == 900
+    assert d.info["depth"] == 20 and d.lance in board.legal_moves
+
+
+def test_busca_recebe_stop_ao_chegar_no_prazo_total():
+    from threading import Event
+    parada = Event()
+    move = chess.Move.from_uci("e2e4")
+
+    class Busca:
+        info = {"pv": [move], "depth": 8, "nodes": 100}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.stop()
+
+        def stop(self):
+            parada.set()
+
+        def wait(self):
+            assert parada.wait(1), "A busca não recebeu stop ao esgotar a janela."
+            return chess.engine.BestMove(move, None)
+
+    motor = SimpleNamespace(analysis=lambda *a, **kw: Busca())
+    d = calcular_lance(motor, chess.Board(), 900, 10, adversario=900, janela_restante=.03)
+    assert d.lance == move and parada.is_set()
+
+
+def test_janela_ampla_mantem_planejamento_original_dos_relogios():
+    motor = MotorSimulado(["e2e4"])
+    calcular_lance(motor, chess.Board(), 900, 10, adversario=900, janela_restante=7200)
+    limite = motor.consultas[0][1]
+    assert limite.white_clock == limite.black_clock == 900
+    assert limite.white_inc == limite.black_inc == 10
+
+
+@pytest.mark.motor_real
+def test_stockfish_real_respeita_orcamento_da_janela_total():
+    with abrir_motor() as motor:
+        board = chess.Board()
+        d = calcular_lance(motor, board, 900, 10, adversario=900, janela_restante=2)
+    assert d.lance in board.legal_moves and d.info.get("nodes", 0) > 0
+    assert d.tempo < 3
+    assert d.detalhes["planejamento_tempo"]["orcamento_nosso_s"] == .95
 
 
 @pytest.mark.parametrize("texto", ["e2e5", "e7e5", "e4", "e2e4 14:60", "e2e4 14:50", "0000"])

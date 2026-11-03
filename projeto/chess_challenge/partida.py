@@ -15,7 +15,8 @@ from .motor import abrir_motor, THREADS_PADRAO, HASH_PADRAO
 from .inteligencia import Jogador, MODOS
 from .aberturas import Repertorio
 from .relatorios import PASTA_RELATORIOS, registrar_lance, salvar_relatorio
-from .relogio import RelogioPartida, TempoEsgotado, entrada_com_prazo, formatar_relogios, ler_tempo
+from .relogio import (RelogioPartida, TempoEsgotado, JanelaPartida, DuracaoEsgotada,
+                      entrada_com_prazo, formatar_relogios, formatar_tempo, ler_tempo)
 
 
 def motivo_encerramento(tabuleiro):
@@ -82,12 +83,13 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
              pasta_relatorios=PASTA_RELATORIOS, tempo=900, incremento=10, modo="completo",
              configuracao="", cor_inicial=None, contexto=None, acompanhamento=None,
              tempo_adversario=None, agora=monotonic, repertorio=None,
-             compacto=False, exportar_relatorio=True):
+             compacto=False, exportar_relatorio=True, duracao_total_minutos=None):
     if not isfinite(tempo) or tempo <= 0 or not isfinite(incremento) or incremento < 0:
         raise ValueError("Tempo deve ser positivo e incremento não negativo.")
     if cor_inicial is not None and type(cor_inicial) is not bool:
         raise ValueError("Cor inicial inválida.")
     tabuleiro, registros = chess.Board(), []
+    janela = JanelaPartida(duracao_total_minutos, agora)
     cor, nome_motor, relogio = cor_inicial, "Stockfish", None
     resultado, sem_entrada, falha = "Partida interrompida.", False, None
     saldos = {True: tempo, False: tempo}
@@ -107,6 +109,8 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                   f"pretas {(inicial_outro if cor else tempo) / 60:g} min | +{incremento:g}s.\n")
         else:
             saida(f"Ritmo: {tempo / 60:g} minutos + {incremento:g} segundos por lance.\n")
+        if janela.total is not None:
+            saida(f"Duração total informada: {duracao_total_minutos:g} minutos.\n")
         if contexto is not None and not compacto:
             saida(f"Campanha: {contexto.objetivo} — {contexto.motivo}\n")
         with conectar() as motor, Jogador(motor, modo, contexto=contexto, repertorio=repertorio) as jogador:
@@ -121,9 +125,11 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
             if not compacto:
                 saida("Relógios automáticos iniciados. Digite apenas o lance adversário.\n")
             relogio.iniciar(chess.WHITE)
+            janela.iniciar()
             fim = None
             try:
                 while fim is None:
+                    janela.verificar()
                     turno = tabuleiro.turn
                     if relogio.saldos()[turno] <= 0:
                         raise TempoEsgotado(turno)
@@ -133,7 +139,12 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                         saida("IA pensando...\n")
                         atuais = relogio.saldos()
                         calculado = jogador.calcular(tabuleiro, atuais[cor], incremento,
-                                                      adversario=atuais[not cor])
+                                                      adversario=atuais[not cor], agora=agora,
+                                                      janela_restante=janela.restante())
+                        janela.verificar()
+                        if janela.total is not None:
+                            calculado = replace(calculado, detalhes={**calculado.detalhes,
+                                "duracao_partida": dict(total_s=janela.total, restante_s=janela.restante())})
                         lance = calculado.lance
                         futura = tabuleiro.copy(stack=True)
                         futura.push(lance)
@@ -143,9 +154,12 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                     else:
                         try:
                             texto = entrada_com_prazo(entrada, "Adversário — digite o lance UCI: ",
-                                                       relogio.saldos()[turno])
+                                                       min(relogio.saldos()[turno],
+                                                           janela.restante() if janela.total is not None else float("inf")))
                         except TimeoutError:
+                            janela.verificar()
                             raise TempoEsgotado(turno) from None
+                        janela.verificar()
                         try:
                             partes = texto.strip().lower().split()
                             if compacto and partes == ["fim"]:
@@ -164,6 +178,7 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                         except ValueError as erro:
                             saida(f"{erro}\n")
                             continue  # Mesmo turno e mesmo relógio, sem reiniciar o prazo.
+                    janela.verificar()
                     gasto = relogio.confirmar_lance(turno)
                     registro = registrar_lance(tabuleiro, lance, cor, calculado)
                     tabuleiro.push(lance)
@@ -178,11 +193,14 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                     analise = f" | {calculado.tempo:.2f}s" if compacto and calculado is not None else ""
                     saida(f"{registro.numero}. {registro.autor} | {registro.cor} | {registro.uci}{analise}\n")
                     saida(mostrar_tabuleiro(tabuleiro) + "\n")
-                    saida(formatar_relogios(saldos) + "\n")
+                    prazo = f" | Partida: {formatar_tempo(janela.restante())}" if janela.total is not None else ""
+                    saida(formatar_relogios(saldos) + prazo + "\n")
                     if acompanhamento:
                         acompanhamento("lance", tabuleiro, registros, saldos, resultado)
                 else:
                     resultado = fim
+            except DuracaoEsgotada as erro:
+                resultado = str(erro)
             except TempoEsgotado as erro:
                 empate = tabuleiro.has_insufficient_material(not erro.cor)
                 resultado = (f"{erro} Empate: adversário sem material para mate." if empate

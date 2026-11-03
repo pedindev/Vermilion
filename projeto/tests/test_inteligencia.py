@@ -277,6 +277,21 @@ def test_correcao_do_relogio_e_custo_da_parada_chegam_a_busca_nativa(monkeypatch
     assert d.tempo == 5
 
 
+def test_parada_da_antecipacao_nao_permite_busca_depois_da_duracao_total(monkeypatch):
+    from chess_challenge.relogio import DuracaoEsgotada
+    tempo = [0]
+    j = Jogador(None)
+
+    def parar(board):
+        tempo[0] += 2
+        return Preparacao()
+
+    j.antecipacao.parar = parar
+    monkeypatch.setattr(inteligencia, "calcular_lance", lambda *a, **kw: pytest.fail("Prazo total já esgotado."))
+    with pytest.raises(DuracaoEsgotada):
+        j.calcular(chess.Board(), 900, 10, agora=lambda: tempo[0], janela_restante=1)
+
+
 def posicao_antes_da_tripla():
     board = chess.Board()
     for uci in ["g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1"]:

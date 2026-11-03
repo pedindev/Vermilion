@@ -51,7 +51,7 @@ cd /d/XADREZ/projeto && ./.venv/Scripts/python.exe -X utf8 jogar.py campeonato
 Cada execução acompanha uma única partida, salva os dados e encerra. Execute
 o mesmo comando antes da próxima; o histórico e os desempates são recuperados.
 
-Na primeira vez, informe equipe e duração prevista (Enter se não souber).
+Na primeira vez, informe equipe e duração total de cada partida (Enter se não souber).
 Em cada novo confronto, informe adversário, fase, formato e nossa cor.
 As fases disponíveis são classificação, oitavas, quartas, semifinal, final e
 terceiro lugar; os formatos são partida única e melhor de três, conforme o
@@ -59,7 +59,16 @@ pareamento da organização. Durante a partida, digite somente o lance adversár
 em UCI, por exemplo `e7e5`. O programa calcula e aplica nossos lances.
 
 O ritmo normal é **15 minutos +10 segundos por lance**, com quatro threads e
-512 MB de hash. A duração prevista é uma referência de agenda, sem corte da análise.
+512 MB de hash. A duração total informada também participa do planejamento:
+o programa acompanha o tempo corrido dos dois turnos e recalcula o orçamento de
+análise a cada lance. Os relógios reais e seus incrementos continuam em 15+10.
+O restante da janela é dividido proporcionalmente aos saldos reais, com até um
+segundo de reserva. Quando a janela restringe o orçamento, o motor planeja sem
+contar futuros incrementos como extensão dessa janela. O Stockfish escolhe quanto
+pensar em cada lance dentro desse orçamento; não há um movetime fixo por jogada.
+Ao atingir a duração total, a busca/entrada é interrompida e a partida aguarda
+resultado oficial da arbitragem. Isso não atribui vitória, empate ou derrota.
+Sem duração informada, a busca usa somente os relógios em 15+10.
 
 Em qualquer fase, um empate no placar é decidido pelo maior tempo restante;
 se os tempos também forem iguais, pergunta se deseja iniciar o Armageddon na
@@ -125,7 +134,7 @@ O Armageddon usa 5 minutos para brancas, 4 para pretas e nenhum incremento,
 conforme a configuração adotada pela equipe. Detalhes e pendências do regulamento
 estão no [manual do projeto](projeto/README.md).
 
-A validação de 01/11/2026 aprovou 286 testes, incluindo oito integrações com o
+A validação de 03/11/2026 aprovou 305 testes, incluindo dez integrações com o
 Stockfish real. Isso verifica funcionamento; uma campanha completa em 5+1 e ganho
 de força ainda precisam ser avaliados.
 
@@ -139,8 +148,11 @@ O contador local acompanha os eventos do programa, sem leitura sincronizada
 do relógio físico do árbitro.
 É possível ajustar os dois saldos durante o jogo com o comando opcional
 `relogios TEMPO_BRANCAS TEMPO_PRETAS`, ou informar os saldos oficiais no resultado.
-A criação da campanha pergunta a duração prevista da partida; essa informação
-não altera o ritmo de 15+10 nem impõe um corte à análise.
+A criação da campanha pergunta a duração total disponível para uma partida
+normal. O contador começa junto dos relógios, depois de abrir o motor, e também
+aparece na tela. Cada nova partida inicia sua própria janela, inclusive na
+melhor de três. O Armageddon mantém seus relógios próprios de 5/4 minutos, sem
+incremento, sem reutilizar a janela das partidas normais.
 
 O jogo manual no modo completo também usa um repertório local preparado com
 Stockfish, até dez meios-lances. Ao sair da linha conhecida, volta à análise

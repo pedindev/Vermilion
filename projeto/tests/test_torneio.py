@@ -225,8 +225,11 @@ def test_comando_unico_cria_joga_salva_resultado_e_simplifica_tela(tmp_path):
     assert p["registros"][-1]["nos"] == 10000
     assert p["saldo_nosso_ms"] > 0 and p["saldo_outro_ms"] > 0
     assert campanha.regras.duracao_prevista_minutos == 25
-    assert motor.consultas[0][1].black_clock == pytest.approx(900, abs=.5)
-    assert motor.consultas[0][1].black_inc == 10
+    assert motor.consultas[0][1].black_clock == pytest.approx(1499 * 900 / 1810, abs=.5)
+    assert motor.consultas[0][1].black_inc == 0
+    assert p["tempo_nosso"] == 900 and p["incremento"] == 10
+    planejamento = json.loads(p["registros"][1]["detalhes"])["planejamento_tempo"]
+    assert planejamento["janela_restante_s"] <= 1500
     texto = "\n".join(saidas)
     assert texto.count("a b c d e f g h") == 4
     assert "Partida salva" in texto and "vencemos" in texto
@@ -267,7 +270,13 @@ def test_tres_execucoes_jogam_uma_partida_cada_e_repassam_resultados_ao_contexto
 @pytest.mark.parametrize("cor_arm", [True, False])
 def test_armageddon_so_e_jogado_na_execucao_seguinte_apos_tres_empates(tmp_path, monkeypatch, cor_arm):
     executar_real = torneio.executar
-    monkeypatch.setattr(torneio, "executar", lambda *a, **kw: executar_real(*a, **kw, agora=lambda: 0))
+    janelas = []
+
+    def executar(*args, **kwargs):
+        janelas.append(kwargs["duracao_total_minutos"])
+        return executar_real(*args, **kwargs, agora=lambda: 0)
+
+    monkeypatch.setattr(torneio, "executar", executar)
     brancas, pretas = ["g1f3", "f3g1"] * 2, ["g8f6", "f6g8"] * 2
     cores = [True, False, True, cor_arm]
     motores = []
@@ -275,7 +284,7 @@ def test_armageddon_so_e_jogado_na_execucao_seguinte_apos_tres_empates(tmp_path,
     for cor in cores:
         motores.append(MotorSimulado(brancas if cor else pretas))
         entradas.append(["1" if cor else "2", *(pretas if cor else brancas)])
-    entradas[0] = ["Nossa", "", "Outra", "5", "2", *entradas[0]]
+    entradas[0] = ["Nossa", "25", "Outra", "5", "2", *entradas[0]]
     entradas[2].append("s")  # Autoriza somente depois de concluir o confronto.
     disponiveis = iter(motores)
 
@@ -306,6 +315,7 @@ def test_armageddon_so_e_jogado_na_execucao_seguinte_apos_tres_empates(tmp_path,
     assert (limite.white_inc, limite.black_inc) == (0, 0)
     assert c.situacao(campanha.regras)["status"] == ("eliminado" if cor_arm else "classificado")
     assert campanha.resumo()["empates"] == 4
+    assert janelas == [25, 25, 25, None]
     assert not c.armageddon_autorizado
     assert [Path(p["arquivo_log"]).name for p in c.concluidas] == [
         f"partida_{n:03d}.log" for n in range(1, 5)]
@@ -339,6 +349,32 @@ def test_sessao_fim_externo_pede_resultado_na_propria_tela(tmp_path):
     p = campanha.confrontos[0].concluidas[0]
     assert p["placar"] == "0-1" and p["resultado"] == "V" and p["origem"] == "operador"
     assert not p["lances"]
+
+
+def test_duracao_total_termina_partida_com_relogios_positivos_e_resultado_pendente(tmp_path, monkeypatch):
+    instante = [0]
+    executar_real = torneio.executar
+    monkeypatch.setattr(torneio, "executar", lambda *a, **kw: executar_real(*a, **kw, agora=lambda: instante[0]))
+    respostas = entrada_programada(["Nossa", ".05", "Outra", "1", "1", "2", "e2e4", ""])
+
+    def entrada(prompt):
+        resposta = respostas(prompt)
+        if "digite o lance" in prompt:
+            instante[0] = 4  # Janela de três segundos, relógios ainda em 15 minutos.
+        return resposta
+
+    @contextmanager
+    def conectar(*args):
+        yield MotorSimulado([])
+
+    assert cli(tmp_path, "iniciar", "--modo", "original", entrada=entrada, conectar=conectar) == 0
+    campanha = Repositorio(tmp_path / "campanha.sqlite3").carregar()
+    p = campanha.confrontos[0].ativa
+    assert not p["lances"] and p["resultado"] is None and p["sugestao_placar"] is None
+    assert min(p["relogios_sistema"].values()) > 0
+    texto = Path(p["arquivo_log"]).read_text(encoding="utf-8")
+    assert "Duração total informada atingida" in texto and "Resultado oficial pendente" in texto
+    assert "Duração total informada: 0.05 minutos" in texto
 
 
 def test_sessao_interrompida_reabre_pendente_sem_perder_historico(tmp_path):
