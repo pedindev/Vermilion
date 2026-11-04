@@ -193,7 +193,10 @@ class Confronto:
             criterio = "Placar já decidido" if decidido else "Confronto em andamento"
         elif diferenca:
             status, criterio = vencedor(diferenca > 0), "Placar"
-        elif saldos is None:
+        elif self.fase == "classificacao":
+            status, criterio = "empate", "Empate na fase classificatória; classificação pelo ELO oficial"
+        elif saldos is None or any(p.get("origem_relogios") not in
+                ("fisico_oficial", "ajuste_oficial_pelo_operador", "simulacao_relogio_real", "cenario_sintetico") for p in normais):
             status, criterio = "relogios_pendentes", "Informar os saldos finais das partidas do confronto"
         else:
             diferenca_ms = sum(p["saldo_nosso_ms"] - p["saldo_outro_ms"] for p in normais)
@@ -217,6 +220,9 @@ class Confronto:
         if saldo is not None and not lado_nosso:
             saldo = -saldo
         comum = dict(fase=self.fase, partida=n + 1, saldo_acumulado=saldo)
+        if self.fase == "classificacao":
+            return Contexto(motivo="Classificatória: vitória, empate ou derrota; ELO calculado pela organização.",
+                            fase=self.fase, partida=n + 1)
         if situacao["status"] == "armageddon":
             if self.cor_armageddon is None:
                 raise ValueError("Informe a cor do sorteio oficial antes do Armageddon.")
@@ -285,6 +291,8 @@ class Confronto:
             raise ValueError("Uma tentativa cancelada não pode receber resultado.")
         p.update(status="concluida", placar=placar, resultado=resultado, motivo=motivo,
                  saldo_nosso_ms=valores[0], saldo_outro_ms=valores[1], origem=origem, fim=agora())
+        if origem in ("fisico_oficial", "ajuste_oficial_pelo_operador", "simulacao_relogio_real", "cenario_sintetico"):
+            p["origem_relogios"] = origem
 
     def corrigir(self, identificador, justificativa, **resultado):
         p = self.partida(identificador)

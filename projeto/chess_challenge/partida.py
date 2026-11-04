@@ -47,6 +47,43 @@ def ler_entrada(texto, tabuleiro):
     return lance
 
 
+def corrigir_tabuleiro(texto, tabuleiro, registros, cor):
+    """Valida toda a correção antes de trocar estado; não altera relógios."""
+    comando, _, valor = texto.strip().partition(" ")
+    comando = comando.lower()
+    if comando == "desfazer":
+        try:
+            quantidade = int(valor) if valor.strip() else 2
+        except ValueError:
+            raise ValueError("Use desfazer N, onde N é o número de meios-lances.") from None
+        if not 1 <= quantidade <= len(tabuleiro.move_stack):
+            raise ValueError("Quantidade de lances para desfazer inválida.")
+        novo = tabuleiro.copy(stack=True)
+        for _ in range(quantidade):
+            novo.pop()
+        return novo, list(registros[:-quantidade])
+    if comando == "fen":
+        try:
+            novo = chess.Board(valor)
+        except ValueError:
+            raise ValueError("FEN inválida; o tabuleiro foi mantido.") from None
+        if not novo.is_valid():
+            raise ValueError("Posição FEN inválida; o tabuleiro foi mantido.")
+        return novo, []
+    if comando == "lances":
+        novo, novos = chess.Board(), []
+        preservar = True
+        for i, uci in enumerate(valor.split()):
+            lance = ler_entrada(uci, novo)
+            anterior = registros[i] if i < len(registros) else None
+            preservar = preservar and anterior is not None and anterior.uci == uci and anterior.fen_antes == novo.fen()
+            registro = anterior if preservar else registrar_lance(novo, lance, cor)
+            novos.append(registro)
+            novo.push(lance)
+        return novo, novos
+    raise ValueError("Correção desconhecida.")
+
+
 def oferecer_relatorio(registros, resultado, cor, incremento, nome_motor, restante,
                        entrada, saida, pasta, configuracao="", relogios=None):
     while True:
@@ -152,6 +189,22 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                             raise TempoEsgotado(turno) from None
                         try:
                             partes = texto.strip().lower().split()
+                            if partes and partes[0] in ("desfazer", "fen", "lances"):
+                                novo, novos = corrigir_tabuleiro(texto, tabuleiro, registros, cor)
+                                jogador.antecipacao.parar()
+                                jogador.repertorio = None  # Não reutilizar preparação após correção.
+                                relogio.reposicionar(novo.turn)
+                                tabuleiro, registros = novo, novos
+                                saldos = relogio.saldos()
+                                fim = motivo_encerramento(tabuleiro)
+                                aviso = "Correção aplicada: " + texto
+                                saida(aviso + "\n" + mostrar_tabuleiro(tabuleiro) + "\n")
+                                if partes[0] == "fen":
+                                    saida("FEN não recupera repetições anteriores. Prefira lances com o histórico completo.\n")
+                                saida("Contadores não foram restaurados. Para sincronizar, use relogios BRANCAS PRETAS.\n")
+                                if acompanhamento:
+                                    acompanhamento("correcao_tabuleiro", tabuleiro, registros, saldos, aviso)
+                                continue
                             if compacto and partes == ["fim"]:
                                 resultado = "Partida encerrada pelo operador; resultado oficial pendente."
                                 break
@@ -211,6 +264,7 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
         saida(resultado)
     if relogio is not None:
         saldos = relogio.parar()
+        saida("Saldos finais do sistema — " + formatar_relogios(saldos) + "\n")
     if acompanhamento:
         acompanhamento("fim", tabuleiro, registros, saldos, resultado)
     if exportar_relatorio and registros and not sem_entrada:

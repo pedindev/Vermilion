@@ -15,7 +15,7 @@ from chess_challenge.campanha import Campanha, Confronto, Contexto, Regras, Repo
 def concluir(c, regras, resultado="E", nosso=30, outro=30):
     p = c.iniciar(regras)
     placar = "1/2-1/2" if resultado == "E" else "1-0" if (resultado == "V") == p["cor"] else "0-1"
-    c.finalizar(p["id"], placar, "Resultado confirmado", nosso, outro)
+    c.finalizar(p["id"], placar, "Resultado confirmado", nosso, outro, origem="fisico_oficial")
     return p
 
 
@@ -279,7 +279,7 @@ def test_eliminacao_bloqueia_avanco_mas_permite_disputa_de_terceiro_lugar():
 
 
 @pytest.mark.parametrize("fase,cor,resultado", list(product(
-    ("classificacao", "oitavas", "quartas", "semifinal", "final", "terceiro-lugar"),
+    ("oitavas", "quartas", "semifinal", "final", "terceiro-lugar"),
     (True, False), "VED")))
 def test_partida_unica_empatada_e_tempos_iguais_tem_um_armageddon_em_qualquer_fase(fase, cor, resultado):
     campanha = Campanha("Equipe", regras=Regras(duracao_prevista_minutos=25))
@@ -302,7 +302,7 @@ def test_partida_unica_empatada_e_tempos_iguais_tem_um_armageddon_em_qualquer_fa
         assert campanha.novo_confronto("Próxima equipe")
 
 
-@pytest.mark.parametrize("fase", ("classificacao", "oitavas", "quartas", "semifinal", "final", "terceiro-lugar"))
+@pytest.mark.parametrize("fase", ("oitavas", "quartas", "semifinal", "final", "terceiro-lugar"))
 @pytest.mark.parametrize("nosso,outro,ganhou", [(10.001, 10, True), (10, 10.001, False)])
 def test_unica_empatada_decide_por_tempo_antes_do_armageddon(fase, nosso, outro, ganhou):
     campanha = Campanha("Equipe")
@@ -324,7 +324,7 @@ def test_unica_sem_saldos_finais_fica_pendente_sem_inventar_armageddon():
         c.iniciar(regras)
 
 
-@pytest.mark.parametrize("fase", ("classificacao", "oitavas", "final"))
+@pytest.mark.parametrize("fase", ("oitavas", "final"))
 def test_contexto_da_unica_usa_apenas_relogios_do_confronto_atual(fase):
     campanha = Campanha("Equipe")
     concluir(campanha.novo_confronto("Anterior"), campanha.regras, "D", nosso=1, outro=800)
@@ -358,7 +358,7 @@ def test_armageddon_antigo_incompativel_com_saldos_nao_apaga_historico():
     c.cor_armageddon = False
     arm = concluir(c, regras, "E")
     c.corrigir(p["id"], "Correção do relógio oficial", placar="1/2-1/2", motivo="Empate",
-               saldo_nosso=30, saldo_outro=40)
+               saldo_nosso=30, saldo_outro=40, origem="fisico_oficial")
     assert c.situacao(regras)["status"] == "revisao_pendente"
     assert len(c.concluidas) == 2 and c.concluidas[-1]["id"] == arm["id"]
 

@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import sqlite3
 
+import chess
 import chess.engine
 
 from .campanha import Campanha, Regras, Repositorio, FASES, agora, numero
@@ -69,6 +70,15 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
     if situacao["status"] not in ("em_disputa", "armageddon"):
         raise ValueError(f"Não é possível iniciar: {situacao['status']}.")
     armageddon = situacao["status"] == "armageddon"
+    if automatico:
+        regras = c.regras(campanha.regras)
+        formato_oficial = "melhor-de-tres" if c.fase in ("semifinal", "final") else "unica"
+        if c.formato != formato_oficial:
+            raise ValueError("Formato salvo incompatível com a fase no manual. Corrija o cadastro antes de jogar.")
+        if ((regras.tempo, regras.incremento) != (900, 10)
+                or (regras.armageddon_brancas, regras.armageddon_pretas, regras.incremento_armageddon) != (300, 240, 0)
+                or not regras.encerrar_ao_decidir):
+            raise ValueError("O modo campeonato exige 15+10, Armageddon 5/4 sem incremento e encerramento ao decidir o confronto. Use banco separado para testes.")
     if armageddon and not confirmar_armageddon(campanha, repo, c, entrada, saida):
         return
     if args.cor_armageddon is not None:
@@ -90,6 +100,7 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
         c.primeira_cor = cor
     contexto = campanha.contexto(c)
     p = c.iniciar(campanha.regras)
+    p["duracao_prevista_minutos"] = None
     p["numero_geral"] = sum(len(confronto.partidas) for confronto in campanha.confrontos)
     if armageddon:
         c.armageddon_autorizado = False  # A confirmação vale para esta partida.
@@ -107,8 +118,11 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
         saida("O histórico é salvo automaticamente no banco local. O TXT é exportado com sua autorização.")
 
     def acompanhar(evento, board, registros, saldos, resultado):
-        quantidade = len(p["registros"])
-        p["registros"].extend(asdict(r) for r in registros[quantidade:])
+        if evento == "correcao_tabuleiro":
+            p.setdefault("correcoes_tabuleiro", []).append(dict(data=agora(),
+                fen_anterior=p.get("fen_atual"), lances_anteriores=list(p.get("lances", [])),
+                registros_anteriores=list(p["registros"]), motivo=resultado))
+        p["registros"] = [asdict(r) for r in registros]
         p.update(fen_inicial=board.root().fen(), lances=[m.uci() for m in board.move_stack],
                  saldo_estimado=saldos[p["cor"]],
                  saldo_outro_estimado=saldos[not p["cor"]],
@@ -130,9 +144,7 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
                      sugestao_placar=sugestao, observacao=resultado)
             # Só a posição final confirma um resultado automaticamente. Interrupção
             # e queda do contador local não substituem a decisão do árbitro.
-            if automatico and fim_tabuleiro:
-                c.finalizar(p["id"], sugestao, fim_tabuleiro,
-                            saldos[p["cor"]], saldos[not p["cor"]], origem="tabuleiro")
+            # Mesmo com mate, os saldos físicos são recolhidos ao encerrar.
         repo.salvar(campanha)
 
     try:
@@ -140,7 +152,7 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
                  tempo=p["tempo_nosso"], incremento=p["incremento"], modo=args.modo,
                  cor_inicial=p["cor"], contexto=contexto, acompanhamento=acompanhar,
                  tempo_adversario=p["tempo_outro"],
-                 duracao_total_minutos=None if armageddon else p["duracao_prevista_minutos"],
+                 duracao_total_minutos=None,
                  repertorio=Repertorio.carregar() if args.modo == "completo" and not args.sem_abertura else None,
                  configuracao=f"{args.threads} threads, {args.hash_mb} MB. Confronto {c.id}; partida {p['id']}.",
                  compacto=automatico, exportar_relatorio=not automatico)
@@ -153,7 +165,7 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
             salvar_log_partida(c, p, repo)
             repo.salvar(campanha)
     if not automatico:
-        saida("Os dois relógios foram salvos automaticamente. Registre o resultado oficial com: jogar.py campanha resultado.")
+        saida("Contadores locais salvos. Registre resultado e saldos físicos oficiais com: jogar.py campanha resultado.")
         saida(f"Partida pendente: {p['id']} | sugestão do tabuleiro: {p.get('sugestao_placar') or 'nenhuma'}")
     return p
 
@@ -184,6 +196,11 @@ def salvar_log_partida(confronto, partida, repo):
         + (f"Duração prevista: {partida['duracao_prevista_minutos']:g} minutos; referência de planejamento, sem encerramento automático."
            if partida.get("duracao_prevista_minutos") is not None and not partida['armageddon'] else ""),
         {True: saldos["brancas"], False: saldos["pretas"]} if saldos else None)
+    if partida.get("origem_relogios") in ("fisico_oficial", "ajuste_oficial_pelo_operador"):
+        oficiais = {partida["cor"]: partida["saldo_nosso_ms"] / 1000,
+                    not partida["cor"]: partida["saldo_outro_ms"] / 1000}
+        texto += (f"\nSALDOS OFICIAIS DO RELÓGIO FÍSICO\n"
+                  f"Brancas: {oficiais[True]:.3f}s | Pretas: {oficiais[False]:.3f}s\n")
     caminho = repo.caminho.parent / "logs" / f"{nome}.log"
     caminho.parent.mkdir(parents=True, exist_ok=True)
     if caminho.exists() and f"ID: {partida['id']}\n" not in caminho.read_text(encoding="utf-8"):
@@ -218,29 +235,45 @@ def resolver_pendente(campanha, repo, entrada, saida):
     """Apenas encerramentos externos ao tabuleiro precisam de um resultado informado."""
     c = campanha.confrontos[-1]
     p = c.ativa
-    saida("Histórico salvo. Informe o resultado confirmado pelo árbitro.")
-    resultado = escolher("[1] Vitória nossa | [2] Empate | [3] Derrota nossa | Enter: deixar pendente: ",
+    sugestao = p.get("sugestao_placar")
+    confirmado = p.get("encerramento_confirmado")
+    # Uma FEN isolada não comprova repetição: recuperar o histórico completo.
+    tabuleiro = chess.Board(p.get("fen_inicial") or chess.STARTING_FEN)
+    for uci in p.get("lances", []):
+        tabuleiro.push_uci(uci)
+    if confirmado:
+        placar, motivo, origem = (confirmado[k] for k in ("placar", "motivo", "origem"))
+    elif sugestao and motivo_encerramento(tabuleiro):
+        placar = sugestao
+        motivo = p["observacao"]
+        origem = "tabuleiro"
+    else:
+        saida("Histórico salvo. Informe o resultado confirmado pelo árbitro.")
+        resultado = escolher("[1] Vitória nossa | [2] Empate | [3] Derrota nossa | Enter: deixar pendente: ",
                          {"1": "V", "2": "E", "3": "D"}, entrada, saida, padrao="pendente")
-    if resultado == "pendente":
-        return False
-    saldos = p.get("relogios_sistema")
-    if saldos is None:
-        # Bancos antigos podem não ter saldos. Não inventar tempos para desempate.
-        saida("Esta partida antiga não tem relógios salvos.")
-        while True:
-            try:
-                valores = entrada("Saldos oficiais BRANCAS PRETAS (ex.: 02:10.125 01:40.250): ").split()
-                if len(valores) != 2:
-                    raise ValueError("Informe os dois saldos.")
-                saldos = dict(zip(("brancas", "pretas"), map(ler_tempo, valores)))
-                break
-            except ValueError as erro:
-                saida(str(erro))
-        p["origem_relogios"] = "ajuste_oficial_pelo_operador"
-    placar = "1/2-1/2" if resultado == "E" else "1-0" if (resultado == "V") == p["cor"] else "0-1"
-    c.finalizar(p["id"], placar, "Resultado informado pelo operador conforme arbitragem",
+        if resultado == "pendente":
+            return False
+        placar = "1/2-1/2" if resultado == "E" else "1-0" if (resultado == "V") == p["cor"] else "0-1"
+        motivo, origem = "Resultado informado pelo operador conforme arbitragem", "operador"
+    # Preserva o resultado mesmo se a entrada dos relógios for interrompida.
+    p.update(sugestao_placar=placar, observacao=motivo,
+             encerramento_confirmado=dict(placar=placar, motivo=motivo, origem=origem))
+    repo.salvar(campanha)
+    while True:
+        valores = entrada("Relógio físico final — BRANCAS PRETAS (mm:ss.sss; Enter: deixar pendente): ").split()
+        if not valores:
+            return False
+        try:
+            if len(valores) != 2:
+                raise ValueError("Informe os dois saldos do árbitro.")
+            saldos = dict(zip(("brancas", "pretas"), map(ler_tempo, valores)))
+            break
+        except ValueError as erro:
+            saida(str(erro))
+    c.finalizar(p["id"], placar, motivo,
                 saldos["brancas" if p["cor"] else "pretas"],
-                saldos["pretas" if p["cor"] else "brancas"], origem="operador")
+                saldos["pretas" if p["cor"] else "brancas"], origem=origem)
+    p["origem_relogios"] = "fisico_oficial"
     repo.salvar(campanha)
     salvar_log_partida(c, p, repo)
     repo.salvar(campanha)
@@ -257,6 +290,8 @@ def mostrar_situacao(confronto, regras, saida):
     elif status in ("vitoria", "derrota", "classificado", "eliminado"):
         ganhou = status in ("vitoria", "classificado")
         saida(f"Confronto encerrado: {'vencemos' if ganhou else 'perdemos'} | {situacao['criterio']}.")
+    elif status == "empate":
+        saida("Empate na classificatória. Resultado salvo; próximo adversário no próximo comando.")
     else:
         saida(f"Decisão pendente: {situacao['criterio']}.")
     return status
@@ -271,8 +306,7 @@ def iniciar_campeonato(args, entrada, saida, conectar):
         equipe = ""
         while not equipe:
             equipe = entrada("Nome da nossa equipe: ").strip()
-        duracao = perguntar_duracao(entrada, saida)
-        campanha = Campanha(equipe, regras=Regras(duracao_prevista_minutos=duracao))
+        campanha = Campanha(equipe)
         repo.criar(campanha)
     resumo = campanha.resumo()
     saida(f"\n{campanha.equipe} | {resumo['vitorias']} vitórias, {resumo['empates']} empates, {resumo['derrotas']} derrotas.")
@@ -286,6 +320,29 @@ def iniciar_campeonato(args, entrada, saida, conectar):
     situacao = c.situacao(campanha.regras) if c else None
     if c and situacao["status"] not in ("em_disputa", "armageddon"):
         status = mostrar_situacao(c, campanha.regras, saida)
+        if status == "relogios_pendentes":
+            for anterior in c.concluidas:
+                if anterior.get("origem_relogios") in ("fisico_oficial", "ajuste_oficial_pelo_operador"):
+                    continue
+                while True:
+                    valores = entrada(f"Relógios físicos da partida {anterior['numero']} — BRANCAS PRETAS (Enter: pendente): ").split()
+                    if not valores:
+                        return
+                    try:
+                        if len(valores) != 2:
+                            raise ValueError("Informe os dois saldos oficiais.")
+                        b, pr = map(ler_tempo, valores)
+                        c.corrigir(anterior["id"], "Registro dos saldos físicos finais",
+                            placar=anterior["placar"], motivo=anterior.get("motivo", "Resultado oficial"),
+                            saldo_nosso=b if anterior["cor"] else pr,
+                            saldo_outro=pr if anterior["cor"] else b, origem="fisico_oficial")
+                        salvar_log_partida(c, anterior, repo)
+                        repo.salvar(campanha)
+                        break
+                    except ValueError as erro:
+                        saida(str(erro))
+            encerrar_confronto(campanha, repo, c, entrada, saida)
+            return  # Uma execução de manutenção não inicia outra partida.
         if status in ("relogios_pendentes", "revisao_pendente", "desempate_pendente"):
             return
         if c.fase in ("final", "terceiro-lugar") or (status == "eliminado" and c.fase != "semifinal"):
@@ -297,8 +354,8 @@ def iniciar_campeonato(args, entrada, saida, conectar):
             return
         fase = escolher("Fase [1] Classificação [2] Oitavas [3] Quartas [4] Semifinal [5] Final [6] 3º lugar: ",
                          {str(i): f for i, f in enumerate(FASES, 1)}, entrada, saida)
-        formato = escolher("Formato [1] Partida única [2] Melhor de três: ",
-                            {"1": "unica", "2": "melhor-de-tres"}, entrada, saida)
+        formato = "melhor-de-tres" if fase in ("semifinal", "final") else "unica"
+        saida("Formato: " + ("melhor de três." if formato == "melhor-de-tres" else "partida única."))
         c = campanha.novo_confronto(adversario, fase=fase, formato=formato,
                                     rodada=len(campanha.confrontos) + 1, primeira_cor=None)
         repo.salvar(campanha)
@@ -448,13 +505,12 @@ def main(argv=None, entrada=input, saida=partial(print, flush=True), conectar=ab
                     nosso, outro = args.nosso_tempo, args.outro_tempo
                     origem = "ajuste_oficial_pelo_operador"
                 elif p.get("saldo_nosso_ms") is not None and p.get("saldo_outro_ms") is not None:
+                    if p.get("origem_relogios") not in ("fisico_oficial", "ajuste_oficial_pelo_operador"):
+                        raise ValueError("Informe --nosso-tempo e --outro-tempo com os saldos do relógio físico.")
                     nosso, outro = p["saldo_nosso_ms"] / 1000, p["saldo_outro_ms"] / 1000
                     origem = p.get("origem_relogios", "registro_anterior")
                 elif p.get("relogios_sistema"):
-                    relogios = p["relogios_sistema"]
-                    nosso = relogios["brancas" if p["cor"] else "pretas"]
-                    outro = relogios["pretas" if p["cor"] else "brancas"]
-                    origem = p.get("origem_relogios", "sistema")
+                    raise ValueError("Informe --nosso-tempo e --outro-tempo com os saldos do relógio físico.")
                 else:
                     raise ValueError("Partida antiga sem relógios automáticos: informe os dois saldos ao registrar o resultado.")
                 dados = dict(placar=args.placar, motivo=args.motivo,
@@ -464,6 +520,7 @@ def main(argv=None, entrada=input, saida=partial(print, flush=True), conectar=ab
                 else:
                     c.finalizar(identificador, **dados)
                 p["origem_relogios"] = origem
+                salvar_log_partida(c, p, repo)
             repo.salvar(campanha)
             saida(json.dumps(c.situacao(campanha.regras), ensure_ascii=False))
         return 0

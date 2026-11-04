@@ -207,7 +207,7 @@ def main(argv=None, entrada=input, emitir=partial(print, flush=True), conectar=a
     parser.add_argument("--adversario", choices=MODOS, default="original")
     parser.add_argument("--tempo", type=float, default=300)
     parser.add_argument("--incremento", type=float, default=1)
-    parser.add_argument("--formato", choices=("melhor-de-tres", "pares", "classificacao", "armageddon"), default="melhor-de-tres")
+    parser.add_argument("--formato", choices=("melhor-de-tres", "unica", "pares", "classificacao", "armageddon"), default="melhor-de-tres")
     parser.add_argument("--fase", choices=("oitavas", "quartas", "semifinal", "final"), default="semifinal")
     parser.add_argument("--campanha", type=Path, help="Banco do teste; arquivo existente continua o confronto")
     parser.add_argument("--cor-inicial", choices=("brancas", "pretas"), default="brancas")
@@ -321,7 +321,7 @@ def testar_confronto(args, entrada, emitir, conectar, pasta_logs):
         else:
             campanha = Campanha("Nosso programa — teste", regras=regras)
             c = campanha.novo_confronto("Stockfish de referência", fase="classificacao" if args.formato == "classificacao" else args.fase,
-                formato="unica" if args.formato == "classificacao" else "melhor-de-tres",
+                formato="unica" if args.formato in ("classificacao", "unica") else "melhor-de-tres",
                 primeira_cor=args.cor_inicial == "brancas")
             if args.formato == "armageddon":
                 # Preparação explícita do cenário, não três jogos fictícios na medição.

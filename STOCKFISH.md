@@ -25,8 +25,9 @@ Este repositório também contém a [GPLv3](LICENSE).
 
 O executável do Stockfish é utilizado localmente por meio do protocolo UCI.
 Não fizemos alterações nos fontes C++ nem treinamos a rede NNUE do Stockfish.
-O executável e a distribuição original são instalados separadamente e não são
-incluídos neste repositório.
+O executável é instalado separadamente. Os fontes completos, sem alterações,
+estão incluídos em [terceiros/stockfish/](terceiros/stockfish/), extraídos do ZIP
+oficial do commit declarado. Incluem os créditos, GPL, scripts e Makefile originais.
 
 A contribuição própria está na camada Python em
 [projeto/chess_challenge/](projeto/chess_challenge/): acompanhamento persistente
@@ -43,11 +44,16 @@ registradas para análise. Ganho competitivo ainda não foi demonstrado.
 - Verificação em 26/10/2026: os arquivos locais `src/misc.cpp`, `src/evaluate.h`,
   `src/engine.cpp`, `AUTHORS` e `Copying.txt` correspondem aos do commit acima,
   desconsiderando apenas a diferença entre finais de linha LF e CRLF.
+- Verificação completa em 04/11/2026: os 76 arquivos da pasta `src` instalada
+  correspondem aos fontes oficiais incluídos, desconsiderando LF/CRLF.
+  Os 119 arquivos extraídos do ZIP oficial foram conferidos byte a byte.
+  A [declaração com hashes](terceiros/stockfish-origem.json) registra URL,
+  commit, hash do download e SHA-256 de cada arquivo original.
 
 O SHA-256 identifica o arquivo local utilizado; não é apresentado como um hash
 publicado ou certificado pelo projeto Stockfish. Se o executável for substituído,
 atualize esta identificação e declare a nova origem.
 
-Esta declaração registra a origem solicitada pelo item 1 do
-[FAQ da competição](documentos/rules.txt). A equipe também deve informar esses
+Esta declaração registra a origem solicitada pelas seções 7 e 9 do
+[Manual do Participante](documentos/Manual%20do%20Participante%20-%20III%20Chess%20Challenge.pdf). A equipe também deve informar esses
 dados no credenciamento e disponibilizar seu repositório à banca.

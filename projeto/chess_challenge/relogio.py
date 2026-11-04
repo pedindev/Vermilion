@@ -86,6 +86,12 @@ class RelogioPartida:
             valores[self.ativo] = max(0, valores[self.ativo] - (self.agora() - self.inicio))
         return valores
 
+    def reposicionar(self, cor):
+        """Troca o turno após corrigir o tabuleiro, sem devolver tempo ou incremento."""
+        self._saldos = self.saldos()
+        self.ativo, self.inicio = cor, self.agora()
+        self.gasto_antes_ajuste = 0
+
     def confirmar_lance(self, cor):
         if self.ativo is None or self.ativo != cor:
             raise ValueError("Lance não corresponde ao relógio ativo.")

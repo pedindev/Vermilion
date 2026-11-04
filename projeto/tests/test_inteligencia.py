@@ -376,6 +376,11 @@ def test_seletor_da_partida_unica_considera_tempo_em_cada_decisao(fase):
     ctx = campanha.contexto(c)
     atras = Jogador(Motor(["d1d2"]), contexto=ctx).calcular(board, 100, 10, adversario=200)
     frente = Jogador(Motor(["d1d2"]), contexto=ctx).calcular(board, 200, 10, adversario=100)
+    if fase == "classificacao":
+        assert atras.lance.uci() == frente.lance.uci() == "d1d2"
+        assert not atras.detalhes["contexto"]["evitar_empate"]
+        assert frente.detalhes["contexto"]["objetivo"] == "equilibrado"
+        return
     assert atras.lance.uci() == "d1d7" and atras.detalhes["contexto"]["evitar_empate"]
     assert frente.lance.uci() == "d1d2"
     assert frente.detalhes["contexto"]["objetivo"] == "preservar_empate"

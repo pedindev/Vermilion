@@ -1,5 +1,5 @@
 # Dependências locais e motor instalado separadamente
-stockfish/
+/stockfish/
 **/.venv/
 **/__pycache__/
 **/.pytest_cache/

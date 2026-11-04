@@ -101,11 +101,10 @@ def formatar_relatorio(nome, registros, resultado, cor_equipe, incremento, motor
                    "Tempos medidos pelo relógio do sistema; não são leitura do relógio físico.", ""])
     for r in registros:
         tempo = f"{r.tempo:.3f}s" if r.tempo is not None else "N/D"
-        linhas.append(f"{r.numero}. {r.autor} | {r.cor} | {r.uci}")
-        linhas.append(f"  profundidade {r.profundidade if r.profundidade is not None else 'N/D'} | "
+        linhas.append(f"{r.numero}. {r.autor} | {r.cor} | {r.uci} | "
+                      f"profundidade {r.profundidade if r.profundidade is not None else 'N/D'} | "
                       f"nós {r.nos if r.nos is not None else 'N/D'} | avaliação {r.avaliacao or 'N/D'} | "
-                      f"tempo {tempo}")
-        linhas.append(fill(f"PV: {r.pv or 'N/D'}", width=100, initial_indent="  ", subsequent_indent="      "))
+                      f"PV: {r.pv or 'N/D'} | tempo {tempo}")
         if r.detalhes:
             try:
                 detalhes = json.loads(r.detalhes)
