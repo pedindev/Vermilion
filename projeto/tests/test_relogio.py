@@ -2,7 +2,7 @@ import chess
 import pytest
 
 from chess_challenge.relogio import (RelogioPartida, TempoEsgotado, entrada_com_prazo,
-                                    JanelaPartida, DuracaoEsgotada)
+                                    JanelaPartida)
 from chess_challenge.partida import executar
 from test_base import MotorSimulado
 
@@ -21,8 +21,7 @@ def test_duracao_total_conta_os_dois_turnos_sem_receber_incremento_ou_ajuste():
     with pytest.raises(ValueError, match="já está"):
         janela.iniciar()
     agora[0] = 60
-    with pytest.raises(DuracaoEsgotada):
-        janela.verificar()
+    assert janela.restante() == 0
     assert min(relogio.saldos().values()) > 0
 
 
@@ -33,7 +32,7 @@ def test_duracao_total_invalida_e_rejeitada(minutos):
 
 
 @pytest.mark.parametrize("nossa_cor", [True, False])
-def test_janela_termina_durante_calculo_ou_entrada_sem_aplicar_lance_tardio(tmp_path, nossa_cor):
+def test_previsao_termina_durante_calculo_ou_entrada_e_partida_continua_ate_mate(tmp_path, nossa_cor):
     agora, finais, saidas = [0], [], []
 
     class Motor(MotorSimulado):
@@ -41,22 +40,24 @@ def test_janela_termina_durante_calculo_ou_entrada_sem_aplicar_lance_tardio(tmp_
             agora[0] += 7
             return super().play(*args, **kwargs)
 
+    adversario = iter(["e7e5", "d8h4"] if nossa_cor else ["f2f3", "g2g4"])
+
     def entrada(prompt):
         agora[0] += 7
-        return "e2e4"
+        return next(adversario)
 
-    board = executar(entrada, saidas.append, conectar=lambda: Motor(["e2e4"]),
+    motor = Motor(["f2f3", "g2g4"] if nossa_cor else ["e7e5", "d8h4"])
+    board = executar(entrada, saidas.append, conectar=lambda: motor,
         cor_inicial=nossa_cor, modo="original", tempo=900, incremento=10,
         duracao_total_minutos=.1, agora=lambda: agora[0], exportar_relatorio=False,
         acompanhamento=lambda e,b,r,s,x: finais.append((s,x)) if e == "fim" else None)
-    assert not board.move_stack
-    assert finais[-1][0] == {True: 893, False: 900}
-    assert "Duração total informada atingida" in finais[-1][1]
-    assert "Resultado oficial pendente" in finais[-1][1]
-    assert "Vitória" not in finais[-1][1] and "Empate" not in finais[-1][1]
+    assert board.is_checkmate() and len(board.move_stack) == 4 and agora[0] == 28
+    assert finais[-1][0] == {True: 906, False: 906}
+    assert "Xeque-mate" in finais[-1][1]
+    assert motor.consultas[-1][1].white_inc == motor.consultas[-1][1].black_inc == 10
 
 
-def test_prazo_de_entrada_e_limitado_pela_duracao_da_partida(tmp_path, monkeypatch):
+def test_prazo_de_entrada_depende_do_relogio_e_nao_da_previsao(tmp_path, monkeypatch):
     import chess_challenge.partida as partida
     prazos = []
 
@@ -68,7 +69,7 @@ def test_prazo_de_entrada_e_limitado_pela_duracao_da_partida(tmp_path, monkeypat
     executar(lambda _: "", lambda _: None, conectar=lambda: MotorSimulado([]),
         cor_inicial=False, modo="original", tempo=900, duracao_total_minutos=2,
         agora=lambda: 0, exportar_relatorio=False)
-    assert prazos == [120]
+    assert prazos == [900]
 
 
 def test_dois_contadores_trocam_turno_aplicam_incremento_sem_cobrar_duas_vezes():
@@ -188,6 +189,7 @@ def test_lance_recebido_apos_zero_nao_e_aplicado_nem_recebe_incremento(tmp_path,
     # Brancas sempre iniciam. Expira nosso cálculo ou a espera pelo adversário.
     board = executar(entrada, lambda _: None, conectar=lambda: motor,
                      cor_inicial=nossa_cor, tempo=10, incremento=100,
+                     duracao_total_minutos=.1,
                      agora=lambda: tempo[0], modo="original", pasta_relatorios=tmp_path,
                      acompanhamento=lambda e, b, r, s, x: salvos.append(s) if e == "fim" else None)
     assert board.move_stack == []
@@ -236,18 +238,27 @@ def test_comando_de_ajuste_so_muda_relogios_e_repassa_saldo_ao_motor(tmp_path):
 def test_partida_real_com_duracao_total_e_relogios_independentes(tmp_path):
     import json
     from test_base import entrada_programada
-    finais = []
-    board = executar(entrada_programada(["e2e4", EOFError()]), lambda _: None,
-        cor_inicial=False, tempo=900, incremento=10, modo="completo",
+    finais, instante = [], [0]
+    ler = entrada_programada(["e2e4", EOFError()])
+
+    def entrada(prompt):
+        resposta = ler(prompt)
+        instante[0] += 7  # A previsão de seis segundos acaba antes de nossa vez.
+        return resposta
+
+    board = executar(entrada, lambda _: None,
+        cor_inicial=False, tempo=20, incremento=.2, modo="completo", agora=lambda: instante[0],
         duracao_total_minutos=.1, exportar_relatorio=False,
         acompanhamento=lambda e,b,r,s,x: finais.append((r,s)) if e == "fim" else None)
     assert len(board.move_stack) == 2 and board.is_valid()
     registros, saldos = finais[-1]
     assert registros[1].profundidade > 0 and registros[1].nos > 0
     detalhes = json.loads(registros[1].detalhes)
-    assert 0 < detalhes["planejamento_tempo"]["janela_restante_s"] <= 6
+    assert detalhes["planejamento_tempo"]["janela_restante_s"] == 0
+    assert detalhes["planejamento_tempo"]["previsao_atingida"]
+    assert detalhes["planejamento_tempo"]["incremento_planejamento_s"] == .2
     assert detalhes["duracao_partida"]["total_s"] == 6
-    assert all(890 < saldo <= 910 for saldo in saldos.values())
+    assert all(0 < saldo <= 20.2 for saldo in saldos.values())
 
 
 @pytest.mark.motor_real

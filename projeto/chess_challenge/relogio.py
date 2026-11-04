@@ -29,14 +29,8 @@ class TempoEsgotado(Exception):
         super().__init__(f"Tempo das {'brancas' if cor else 'pretas'} esgotado no sistema.")
 
 
-class DuracaoEsgotada(Exception):
-    """A janela total terminou; o resultado continua dependendo da arbitragem."""
-
-    def __init__(self):
-        super().__init__("Duração total informada atingida. Resultado oficial pendente da arbitragem.")
-
-
 class JanelaPartida:
+    """Previsão de duração para planejamento, sem poder encerrar a partida."""
     def __init__(self, minutos=None, agora=monotonic):
         if minutos is not None and (isinstance(minutos, bool) or not isinstance(minutos, (int, float))
                                    or not isfinite(minutos * 60) or minutos <= 0):
@@ -46,17 +40,13 @@ class JanelaPartida:
 
     def iniciar(self):
         if self.inicio is not None:
-            raise ValueError("A duração total da partida já está em andamento.")
+            raise ValueError("A previsão da partida já está em andamento.")
         self.inicio = self.agora()
 
     def restante(self):
         if self.total is None:
             return None
         return max(0, self.total - (self.agora() - self.inicio)) if self.inicio is not None else self.total
-
-    def verificar(self):
-        if self.restante() == 0:
-            raise DuracaoEsgotada()
 
 
 class RelogioPartida:

@@ -29,7 +29,7 @@ def segundos(texto):
 
 def perguntar_duracao(entrada, saida):
     while True:
-        texto = entrada("Duração total de cada partida, em minutos [Enter se não informado]: ").strip()
+        texto = entrada("Duração prevista de cada partida, em minutos [Enter se não informado]: ").strip()
         if not texto:
             return None
         try:
@@ -102,7 +102,7 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
     else:
         saida(f"Confronto: {c.adversario} | {c.fase} | partida {p['numero']} | ID {p['id']}")
     if p["duracao_prevista_minutos"] is not None and not automatico:
-        saida(f"Duração total informada: {p['duracao_prevista_minutos']:g} minutos.")
+        saida(f"Duração prevista: {p['duracao_prevista_minutos']:g} minutos.")
     if not automatico:
         saida("O histórico é salvo automaticamente no banco local. O TXT é exportado com sua autorização.")
 
@@ -181,7 +181,7 @@ def salvar_log_partida(confronto, partida, repo):
         descricao, partida["cor"], partida["incremento"], "Stockfish", restante,
         f"ID: {partida['id']}\nAdversário: {confronto.adversario} | Fase: {confronto.fase} | Partida {partida['numero']} | "
         f"{'Armageddon' if partida['armageddon'] else confronto.formato}\n"
-        + (f"Duração total informada: {partida['duracao_prevista_minutos']:g} minutos."
+        + (f"Duração prevista: {partida['duracao_prevista_minutos']:g} minutos; referência de planejamento, sem encerramento automático."
            if partida.get("duracao_prevista_minutos") is not None and not partida['armageddon'] else ""),
         {True: saldos["brancas"], False: saldos["pretas"]} if saldos else None)
     caminho = repo.caminho.parent / "logs" / f"{nome}.log"
@@ -328,7 +328,7 @@ def criar_parser():
     p.add_argument("--campeonato", default="III Chess Challenge")
     p.add_argument("--teste", action="store_true", help="Ritmo normal 300+1; Armageddon 300/240+0")
     p.add_argument("--duracao-prevista", dest="duracao_prevista_minutos", type=float,
-                   help="Duração total das partidas normais em minutos; se omitida, será perguntada")
+                   help="Duração prevista das partidas normais para planejamento, sem encerramento automático")
     comando("status", "Mostrar vitórias, empates, derrotas e partidas")
     p = comando("confronto", "Cadastrar o próximo pareamento da organização")
     p.add_argument("--adversario", required=True)

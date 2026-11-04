@@ -351,30 +351,33 @@ def test_sessao_fim_externo_pede_resultado_na_propria_tela(tmp_path):
     assert not p["lances"]
 
 
-def test_duracao_total_termina_partida_com_relogios_positivos_e_resultado_pendente(tmp_path, monkeypatch):
+def test_previsao_atingida_continua_partida_ate_encerramento_do_operador(tmp_path, monkeypatch):
     instante = [0]
     executar_real = torneio.executar
     monkeypatch.setattr(torneio, "executar", lambda *a, **kw: executar_real(*a, **kw, agora=lambda: instante[0]))
-    respostas = entrada_programada(["Nossa", ".05", "Outra", "1", "1", "2", "e2e4", ""])
+    respostas = entrada_programada(["Nossa", ".05", "Outra", "1", "1", "2", "e2e4", "fim", "2"])
 
     def entrada(prompt):
         resposta = respostas(prompt)
         if "digite o lance" in prompt:
-            instante[0] = 4  # Janela de três segundos, relógios ainda em 15 minutos.
+            instante[0] += 4  # Previsão de três segundos, relógios ainda em 15 minutos.
         return resposta
 
     @contextmanager
     def conectar(*args):
-        yield MotorSimulado([])
+        yield MotorSimulado(["e7e5"])
 
     assert cli(tmp_path, "iniciar", "--modo", "original", entrada=entrada, conectar=conectar) == 0
     campanha = Repositorio(tmp_path / "campanha.sqlite3").carregar()
-    p = campanha.confrontos[0].ativa
-    assert not p["lances"] and p["resultado"] is None and p["sugestao_placar"] is None
+    c = campanha.confrontos[0]
+    p = c.concluidas[0]
+    assert c.ativa is None and p["lances"] == ["e2e4", "e7e5"]
+    assert p["placar"] == "1/2-1/2" and p["origem"] == "operador"
     assert min(p["relogios_sistema"].values()) > 0
     texto = Path(p["arquivo_log"]).read_text(encoding="utf-8")
-    assert "Duração total informada atingida" in texto and "Resultado oficial pendente" in texto
-    assert "Duração total informada: 0.05 minutos" in texto
+    assert "Resultado informado pelo operador" in texto
+    assert "Duração prevista: 0.05 minutos" in texto
+    assert "encerramento automático" in texto
 
 
 def test_sessao_interrompida_reabre_pendente_sem_perder_historico(tmp_path):

@@ -15,7 +15,7 @@ from .motor import abrir_motor, THREADS_PADRAO, HASH_PADRAO
 from .inteligencia import Jogador, MODOS
 from .aberturas import Repertorio
 from .relatorios import PASTA_RELATORIOS, registrar_lance, salvar_relatorio
-from .relogio import (RelogioPartida, TempoEsgotado, JanelaPartida, DuracaoEsgotada,
+from .relogio import (RelogioPartida, TempoEsgotado, JanelaPartida,
                       entrada_com_prazo, formatar_relogios, formatar_tempo, ler_tempo)
 
 
@@ -110,7 +110,7 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
         else:
             saida(f"Ritmo: {tempo / 60:g} minutos + {incremento:g} segundos por lance.\n")
         if janela.total is not None:
-            saida(f"Duração total informada: {duracao_total_minutos:g} minutos.\n")
+            saida(f"Duração prevista: {duracao_total_minutos:g} minutos.\n")
         if contexto is not None and not compacto:
             saida(f"Campanha: {contexto.objetivo} — {contexto.motivo}\n")
         with conectar() as motor, Jogador(motor, modo, contexto=contexto, repertorio=repertorio) as jogador:
@@ -129,7 +129,6 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
             fim = None
             try:
                 while fim is None:
-                    janela.verificar()
                     turno = tabuleiro.turn
                     if relogio.saldos()[turno] <= 0:
                         raise TempoEsgotado(turno)
@@ -141,7 +140,6 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                         calculado = jogador.calcular(tabuleiro, atuais[cor], incremento,
                                                       adversario=atuais[not cor], agora=agora,
                                                       janela_restante=janela.restante())
-                        janela.verificar()
                         if janela.total is not None:
                             calculado = replace(calculado, detalhes={**calculado.detalhes,
                                 "duracao_partida": dict(total_s=janela.total, restante_s=janela.restante())})
@@ -154,12 +152,9 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                     else:
                         try:
                             texto = entrada_com_prazo(entrada, "Adversário — digite o lance UCI: ",
-                                                       min(relogio.saldos()[turno],
-                                                           janela.restante() if janela.total is not None else float("inf")))
+                                                       relogio.saldos()[turno])
                         except TimeoutError:
-                            janela.verificar()
                             raise TempoEsgotado(turno) from None
-                        janela.verificar()
                         try:
                             partes = texto.strip().lower().split()
                             if compacto and partes == ["fim"]:
@@ -178,7 +173,6 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                         except ValueError as erro:
                             saida(f"{erro}\n")
                             continue  # Mesmo turno e mesmo relógio, sem reiniciar o prazo.
-                    janela.verificar()
                     gasto = relogio.confirmar_lance(turno)
                     registro = registrar_lance(tabuleiro, lance, cor, calculado)
                     tabuleiro.push(lance)
@@ -193,14 +187,15 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                     analise = f" | {calculado.tempo:.2f}s" if compacto and calculado is not None else ""
                     saida(f"{registro.numero}. {registro.autor} | {registro.cor} | {registro.uci}{analise}\n")
                     saida(mostrar_tabuleiro(tabuleiro) + "\n")
-                    prazo = f" | Partida: {formatar_tempo(janela.restante())}" if janela.total is not None else ""
+                    prazo = ""
+                    if janela.total is not None:
+                        previsto = janela.restante()
+                        prazo = " | Previsão atingida" if previsto == 0 else f" | Previsão: {formatar_tempo(previsto)}"
                     saida(formatar_relogios(saldos) + prazo + "\n")
                     if acompanhamento:
                         acompanhamento("lance", tabuleiro, registros, saldos, resultado)
                 else:
                     resultado = fim
-            except DuracaoEsgotada as erro:
-                resultado = str(erro)
             except TempoEsgotado as erro:
                 empate = tabuleiro.has_insufficient_material(not erro.cor)
                 resultado = (f"{erro} Empate: adversário sem material para mate." if empate

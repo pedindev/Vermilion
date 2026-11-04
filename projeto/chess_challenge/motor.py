@@ -8,7 +8,6 @@ from pathlib import Path
 import shutil
 import sys
 from time import monotonic
-from threading import Timer
 
 import chess
 import chess.engine
@@ -65,23 +64,24 @@ def calcular_lance(motor, tabuleiro, restante, incremento=10, agora=monotonic, a
     detalhes = {}
     nosso_calculo, outro_calculo, incremento_calculo = restante, adversario, incremento
     if janela_restante is not None:
-        if not isfinite(janela_restante) or janela_restante <= 0:
-            raise ValueError("A janela restante deve ser positiva e finita.")
-        # O relógio físico continua em 15+10. Para planejar dentro da janela
-        # global, divide-se o tempo restante proporcionalmente aos saldos reais.
-        # Incremento não prolonga a janela, portanto não cria orçamento extra.
-        disponivel = janela_restante - min(1.0, janela_restante * .05)
-        outro_saldo = restante if adversario is None else adversario
-        fracao = restante / (restante + outro_saldo)
-        nosso_calculo = min(restante, disponivel * fracao)
-        outro_calculo = min(outro_saldo, disponivel * (1 - fracao)) if adversario is not None else None
-        restringe = nosso_calculo < restante or (outro_calculo is not None and outro_calculo < adversario)
-        incremento_calculo = 0 if restringe else incremento
+        if not isfinite(janela_restante) or janela_restante < 0:
+            raise ValueError("A previsão restante deve ser não negativa e finita.")
+        # A previsão orienta o orçamento, mas não é um prazo de encerramento.
+        # Depois de atingida, o planejamento volta aos relógios oficiais.
+        if janela_restante > 0:
+            disponivel = janela_restante - min(1.0, janela_restante * .05)
+            outro_saldo = restante if adversario is None else adversario
+            fracao = restante / (restante + outro_saldo)
+            nosso_calculo = min(restante, disponivel * fracao)
+            outro_calculo = min(outro_saldo, disponivel * (1 - fracao)) if adversario is not None else None
+            restringe = nosso_calculo < restante or (outro_calculo is not None and outro_calculo < adversario)
+            incremento_calculo = 0 if restringe else incremento
         detalhes["planejamento_tempo"] = dict(janela_restante_s=janela_restante,
             relogio_nosso_s=restante, relogio_adversario_s=adversario,
             orcamento_nosso_s=nosso_calculo, orcamento_adversario_s=outro_calculo,
             incremento_planejamento_s=incremento_calculo,
-            metodo="Divisão proporcional da janela total pelos saldos reais")
+            previsao_atingida=janela_restante == 0,
+            metodo="Previsão de duração e saldos reais; sem encerramento por previsão")
     # Sem movetime, profundidade ou nós fixos: o Stockfish distribui o orçamento.
     if tabuleiro.turn == chess.WHITE:
         limite = chess.engine.Limit(white_clock=nosso_calculo, white_inc=incremento_calculo)
@@ -93,26 +93,9 @@ def calcular_lance(motor, tabuleiro, restante, incremento=10, agora=monotonic, a
         else:
             limite.white_clock, limite.white_inc = outro_calculo, incremento_calculo
     inicio = agora()
-    if janela_restante is None:
-        resposta = motor.play(tabuleiro.copy(stack=True), limite, ponder=False,
-                              info=chess.engine.INFO_ALL)
-        info = resposta.info
-    else:
-        with motor.analysis(tabuleiro.copy(stack=True), limite, info=chess.engine.INFO_ALL) as busca:
-            def parar_busca():
-                try:
-                    busca.stop()
-                except (chess.engine.EngineError, RuntimeError):
-                    pass  # O motor pode ter encerrado junto com o temporizador.
-            parada = Timer(max(0, janela_restante - (agora() - inicio)), parar_busca)
-            parada.daemon = True
-            parada.start()
-            try:
-                resposta = busca.wait()
-                info = busca.info
-            finally:
-                parada.cancel()
+    resposta = motor.play(tabuleiro.copy(stack=True), limite, ponder=False,
+                          info=chess.engine.INFO_ALL)
     tempo = agora() - inicio
     if resposta.move is None or resposta.move not in tabuleiro.legal_moves:
         raise chess.engine.EngineError("Stockfish não retornou um lance legal.")
-    return LanceCalculado(resposta.move, tempo, info, resposta.ponder, detalhes)
+    return LanceCalculado(resposta.move, tempo, resposta.info, resposta.ponder, detalhes)

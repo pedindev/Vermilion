@@ -53,29 +53,6 @@ class MotorSimulado:
             "pv": [move], "score": chess.engine.PovScore(chess.engine.Cp(20), board.turn),
             "depth": 20, "nodes": 10000})
 
-    def analysis(self, board, limit, *, info):
-        motor = self
-
-        class Busca:
-            info = {}
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args):
-                self.stop()
-
-            def wait(self):
-                resposta = motor.play(board, limit, ponder=False, info=info)
-                self.info = resposta.info
-                return chess.engine.BestMove(resposta.move, resposta.ponder)
-
-            def stop(self):
-                pass
-
-        return Busca()
-
-
 @pytest.mark.parametrize("brancas", [True, False])
 def test_envia_relogio_e_incremento_ao_motor_sem_movetime(brancas):
     board = chess.Board()
@@ -106,35 +83,23 @@ def test_janela_planeja_busca_sem_modificar_relogio_real_ou_fixar_tempo_por_lanc
     assert d.info["depth"] == 20 and d.lance in board.legal_moves
 
 
-def test_busca_recebe_stop_ao_chegar_no_prazo_total():
-    from threading import Event
-    parada = Event()
-    move = chess.Move.from_uci("e2e4")
+def test_busca_pode_terminar_depois_da_previsao_com_lance_legal():
+    tempo = [0]
 
-    class Busca:
-        info = {"pv": [move], "depth": 8, "nodes": 100}
+    class Motor(MotorSimulado):
+        def play(self, *args, **kwargs):
+            tempo[0] += 2
+            return super().play(*args, **kwargs)
 
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            self.stop()
-
-        def stop(self):
-            parada.set()
-
-        def wait(self):
-            assert parada.wait(1), "A busca não recebeu stop ao esgotar a janela."
-            return chess.engine.BestMove(move, None)
-
-    motor = SimpleNamespace(analysis=lambda *a, **kw: Busca())
-    d = calcular_lance(motor, chess.Board(), 900, 10, adversario=900, janela_restante=.03)
-    assert d.lance == move and parada.is_set()
+    d = calcular_lance(Motor(["e2e4"]), chess.Board(), 900, 10, adversario=900,
+                       janela_restante=.5, agora=lambda: tempo[0])
+    assert d.lance.uci() == "e2e4" and d.tempo == 2
 
 
-def test_janela_ampla_mantem_planejamento_original_dos_relogios():
+@pytest.mark.parametrize("janela", [0, 7200])
+def test_previsao_atingida_ou_ampla_usa_relogios_oficiais(janela):
     motor = MotorSimulado(["e2e4"])
-    calcular_lance(motor, chess.Board(), 900, 10, adversario=900, janela_restante=7200)
+    calcular_lance(motor, chess.Board(), 900, 10, adversario=900, janela_restante=janela)
     limite = motor.consultas[0][1]
     assert limite.white_clock == limite.black_clock == 900
     assert limite.white_inc == limite.black_inc == 10
