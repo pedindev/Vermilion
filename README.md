@@ -90,6 +90,9 @@ O banco fica em `projeto/dados/campeonato.sqlite3`. Cada partida também gera
 um LOG técnico em `projeto/dados/logs/`, para entrega à banca. Os novos arquivos
 são `partida_001.log`, `partida_002.log`, etc., seguindo a ordem geral da campanha,
 inclusive melhor de três e Armageddon. A tela informa o nome ao terminar.
+O relatório mostra cada jogada UCI, jogador e cor, seguida do tabuleiro atualizado
+e de linhas em branco. As métricas exigidas ficam na seção técnica ao final;
+os detalhes completos das decisões permanecem no banco, sem blocos JSON no LOG.
 Atualizar um resultado pendente atualiza o mesmo LOG. Arquivos antigos com nome
 de ID são preservados; ao atualizar a partida, também é gerado o nome numerado.
 O banco guarda jogadas, análises, resultados e relógios de todas as partidas;
@@ -136,8 +139,9 @@ O Armageddon usa 5 minutos para brancas, 4 para pretas e nenhum incremento,
 conforme a configuração adotada pela equipe. Detalhes e pendências do regulamento
 estão no [manual do projeto](projeto/README.md).
 
-A validação de 03/11/2026 aprovou 306 testes, incluindo dez integrações com o
-Stockfish real. Isso verifica funcionamento; uma campanha completa em 5+1 e ganho
+A revisão do formato do LOG em 03/11/2026 aprovou 300 testes sem executar o motor.
+Os controles do jogo foram validados com dez integrações com Stockfish real na
+revisão anterior. Isso verifica funcionamento; uma campanha completa em 5+1 e ganho
 de força ainda precisam ser avaliados.
 
 O Git inclui os scripts de teste. Ambientes virtuais, caches, bancos das campanhas

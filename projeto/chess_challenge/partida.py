@@ -14,7 +14,7 @@ import chess.engine
 from .motor import abrir_motor, THREADS_PADRAO, HASH_PADRAO
 from .inteligencia import Jogador, MODOS
 from .aberturas import Repertorio
-from .relatorios import PASTA_RELATORIOS, registrar_lance, salvar_relatorio
+from .relatorios import PASTA_RELATORIOS, registrar_lance, salvar_relatorio, mostrar_tabuleiro
 from .relogio import (RelogioPartida, TempoEsgotado, JanelaPartida,
                       entrada_com_prazo, formatar_relogios, formatar_tempo, ler_tempo)
 
@@ -32,11 +32,6 @@ def motivo_encerramento(tabuleiro):
     if tabuleiro.is_fifty_moves():
         return "Empate pela regra dos 50 lances."
     return None
-
-
-def mostrar_tabuleiro(tabuleiro):
-    return "\n".join([f"{8-i}  {linha}" for i, linha in enumerate(str(tabuleiro).splitlines())]
-                     + ["   a b c d e f g h"])
 
 
 def ler_entrada(texto, tabuleiro):

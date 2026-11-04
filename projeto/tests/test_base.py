@@ -9,7 +9,8 @@ from chess_challenge import partida as entrada_lances
 from chess_challenge import motor as motor_stockfish
 from chess_challenge.partida import executar, ler_entrada, motivo_encerramento
 from chess_challenge.motor import abrir_motor, calcular_lance
-from chess_challenge.relatorios import registrar_lance, salvar_relatorio
+from chess_challenge.relatorios import (registrar_lance, salvar_relatorio,
+                                        formatar_relatorio, RegistroLance)
 
 
 def entrada_programada(valores):
@@ -160,6 +161,39 @@ def test_mate_salva_log_so_apos_consentimento_e_nome(tmp_path, cor):
     assert board.is_checkmate()
     for campo in ["Xeque-mate", "Brancas", "Pretas", "profundidade 20", "nós 10000", "PV", "tempo", "N/D"]:
         assert campo in texto
+
+
+def test_log_legado_reconstroi_tabuleiro_apos_cada_jogada_e_separa_dados_tecnicos():
+    registros = [RegistroLance(1, "Brancas", "Adversário", "f2f3"),
+                 RegistroLance(1, "Pretas", "Nossa equipe", "e7e5", profundidade=37,
+                               detalhes='{"criterio": "Preferência original", "original": "e7e5"}'),
+                 RegistroLance(2, "Brancas", "Adversário", "g2g4"),
+                 RegistroLance(2, "Pretas", "Nossa equipe", "d8h4")]
+    texto = formatar_relatorio("001", registros, "Xeque-mate", False, 10, "Stockfish")
+    corpo, tecnica = texto.split("DADOS TÉCNICOS POR LANCE", 1)
+    assert corpo.count("a b c d e f g h") == 4
+    assert "1. Adversário | Brancas | f2f3\n\n8  r n b q k b n r" in corpo
+    assert "3  . . . . . P . ." in corpo
+    assert "4  . . . . . . P q" in corpo
+    assert "a b c d e f g h\n\n\n2. Nossa equipe | Pretas | d8h4" in corpo
+    assert all(campo not in corpo for campo in ("profundidade", "PV", "Decisão:"))
+    assert "profundidade 37" in tecnica and "Decisão: Preferência original" in tecnica
+    assert '"criterio"' not in texto
+
+
+@pytest.mark.parametrize("fen,uci,linha", [
+    ("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1", "e1g1", "1  R . . . . R K ."),
+    ("7k/P7/8/8/8/8/8/7K w - - 0 1", "a7a8q", "8  Q . . . . . . k"),
+    ("7k/8/8/3pP3/8/8/8/7K w - d6 0 2", "e5d6", "6  . . . P . . . ."),
+])
+def test_tabuleiro_do_log_reproduz_jogadas_especiais_e_posicao_inicial(fen, uci, linha):
+    board = chess.Board(fen)
+    registro = registrar_lance(board, chess.Move.from_uci(uci), True)
+    assert board.fen() == fen
+    texto = formatar_relatorio("Teste", [registro], "*", True, 10, "Stockfish")
+    corpo = texto.split("DADOS TÉCNICOS POR LANCE", 1)[0]
+    assert uci in corpo and linha in corpo
+    assert corpo.count("a b c d e f g h") == 1
 
 
 @pytest.mark.parametrize("resposta", ["n", "", EOFError()])

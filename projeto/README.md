@@ -115,6 +115,14 @@ Os movimentos adversários são registrados com lance, cor e tempo observado;
 os dados internos do motor adversário ficam `N/D` (não disponível).
 A análise prévia do repertório é identificada separadamente da busca atual.
 
+O corpo do LOG apresenta jogador, cor e jogada UCI, com o tabuleiro imediatamente
+depois e espaçamento entre os lances. As métricas ficam na seção técnica ao final,
+com PV quebrada em linhas e critérios em texto. Os detalhes completos das decisões
+continuam no banco; o LOG não intercala blocos JSON com a leitura da partida.
+Cada novo registro guarda a posição anterior para reconstruir corretamente
+tabuleiros de posições de teste e jogadas especiais. Históricos antigos de
+partidas completas continuam sendo reproduzidos a partir da posição inicial.
+
 Interrupção não inventa empate nem retoma uma partida automaticamente.
 Ao reabrir o campeonato, uma partida pendente pede apenas o resultado oficial;
 Enter mantém a pendência sem inventar um resultado.
@@ -186,8 +194,9 @@ Os testes verificam placares e cores, Armageddon nos dois formatos, frações de
 segundo, ajustes físicos, migração de bancos, integridade dos históricos,
 limites do repertório e comunicação real com o motor. Testes funcionais e
 baterias curtas não demonstram superioridade competitiva.
-Validação de 03/11/2026: 306 testes passaram, incluindo dez integrações com o
-Stockfish real. Não foi executado um confronto completo de 5+1 nesta revisão.
+Na revisão do LOG de 03/11/2026, 300 testes passaram sem executar o motor.
+Os controles do jogo tiveram dez integrações com Stockfish real aprovadas na
+revisão anterior. Não foi executado um confronto completo de 5+1 nesta revisão.
 
 ## Organização e origem
 

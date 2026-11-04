@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import json
 import re
+from textwrap import fill
 
 import chess
 
@@ -26,6 +27,12 @@ class RegistroLance:
     saldo_brancas: float | None = None
     saldo_pretas: float | None = None
     fonte_tempo: str | None = None
+    fen_antes: str | None = None
+
+
+def mostrar_tabuleiro(tabuleiro):
+    return "\n".join([f"{8-i}  {linha}" for i, linha in enumerate(str(tabuleiro).splitlines())]
+                     + ["   a b c d e f g h"])
 
 
 def registrar_lance(tabuleiro, lance, cor_equipe, calculado=None):
@@ -47,7 +54,8 @@ def registrar_lance(tabuleiro, lance, cor_equipe, calculado=None):
                           avaliacao, " ".join(m.uci() for m in pv) if correspondente else None,
                           calculado.tempo if calculado is not None else None,
                           json.dumps(getattr(calculado, "detalhes", {}), ensure_ascii=False)
-                          if calculado is not None and getattr(calculado, "detalhes", {}) else "")
+                          if calculado is not None and getattr(calculado, "detalhes", {}) else "",
+                          fen_antes=tabuleiro.fen())
 
 
 def validar_nome(nome):
@@ -66,27 +74,53 @@ def validar_nome(nome):
 def formatar_relatorio(nome, registros, resultado, cor_equipe, incremento, motor,
                        restante=None, configuracao="", relogios=None):
     nome = validar_nome(nome)
+    registros = list(registros)
     linhas = [f"Partida: {nome}", f"Nossa equipe: {'Brancas' if cor_equipe else 'Pretas'}",
-              f"Motor: {motor}", "Busca principal: Stockfish; orçamento temporal do controlador quando há duração prevista.", configuracao,
-              f"Incremento: {incremento:g}s", f"Resultado: {resultado}",
-              f"Nosso saldo final no sistema: {restante:.3f}s" if restante is not None else "",
-              "Avaliação na perspectiva das brancas.",
-              "Tempos medidos pelo relógio do sistema; não são leitura do relógio físico.",
-              "Profundidade, nós, avaliação e PV documentam as análises do nosso motor.",
-              "Nos movimentos adversários, registramos o lance e o tempo observado; as métricas do motor adversário ficam N/D.",
-              "N/D: dado não disponível. A análise prévia do repertório é identificada separadamente da busca atual.", ""]
+              f"Motor: {motor}", configuracao,
+              f"Incremento: {incremento:g}s", f"Resultado: {resultado}"]
     if relogios is not None:
         linhas.append(f"Saldos finais do sistema: Brancas {relogios[True]:.3f}s | Pretas {relogios[False]:.3f}s")
+    elif restante is not None:
+        linhas.append(f"Nosso saldo final no sistema: {restante:.3f}s")
+    linhas.extend(["", "JOGADAS", ""])
+    tabuleiro = chess.Board() if not registros or (registros[0].numero == 1 and registros[0].cor == "Brancas") else None
+    for r in registros:
+        linhas.extend([f"{r.numero}. {r.autor} | {r.cor} | {r.uci}", ""])
+        if r.fen_antes is not None:
+            tabuleiro = chess.Board(r.fen_antes)
+        if tabuleiro is not None:
+            try:
+                tabuleiro.push_uci(r.uci)
+            except ValueError:
+                tabuleiro = None
+        linhas.extend([mostrar_tabuleiro(tabuleiro) if tabuleiro is not None
+                       else "Tabuleiro indisponível: posição inicial não registrada.", "", ""])
+    linhas.extend(["DADOS TÉCNICOS POR LANCE", "",
+                   "Profundidade, nós, avaliação e PV são dados das análises do nosso motor.",
+                   "Avaliação na perspectiva das brancas. N/D: dado não disponível, inclusive busca do motor adversário.",
+                   "Tempos medidos pelo relógio do sistema; não são leitura do relógio físico.", ""])
     for r in registros:
         tempo = f"{r.tempo:.3f}s" if r.tempo is not None else "N/D"
-        linhas.append(f"{r.numero}. {r.autor} | {r.cor} | {r.uci} | "
-                      f"profundidade {r.profundidade if r.profundidade is not None else 'N/D'} | "
+        linhas.append(f"{r.numero}. {r.autor} | {r.cor} | {r.uci}")
+        linhas.append(f"  profundidade {r.profundidade if r.profundidade is not None else 'N/D'} | "
                       f"nós {r.nos if r.nos is not None else 'N/D'} | avaliação {r.avaliacao or 'N/D'} | "
-                      f"PV {r.pv or 'N/D'} | tempo {tempo}")
+                      f"tempo {tempo}")
+        linhas.append(fill(f"PV: {r.pv or 'N/D'}", width=100, initial_indent="  ", subsequent_indent="      "))
         if r.detalhes:
-            linhas.append(f"  Decisão: {r.detalhes}")
+            try:
+                detalhes = json.loads(r.detalhes)
+            except (ValueError, TypeError):
+                detalhes = {}
+            if isinstance(detalhes, dict) and detalhes.get("criterio"):
+                linhas.append(fill(f"Decisão: {detalhes['criterio']}", width=100,
+                                   initial_indent="  ", subsequent_indent="      "))
+            if isinstance(detalhes, dict) and detalhes.get("original"):
+                linhas.append(f"  Preferência inicial do Stockfish: {detalhes['original']}")
+            if isinstance(detalhes, dict) and detalhes.get("analise_previa"):
+                linhas.append("  Origem: repertório preparado; análise prévia preservada no banco.")
         if r.saldo_brancas is not None and r.saldo_pretas is not None:
             linhas.append(f"  Relógios do sistema: Brancas {r.saldo_brancas:.3f}s | Pretas {r.saldo_pretas:.3f}s")
+        linhas.append("")
     return "\n".join(linhas) + "\n"
 
 
