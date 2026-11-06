@@ -17,6 +17,7 @@ from uuid import uuid4
 import chess
 
 FASES = ("classificacao", "oitavas", "quartas", "semifinal", "final", "terceiro-lugar")
+RITMO_CAMPEONATO = (600, 0)
 OBJETIVOS = ("equilibrado", "buscar_vitoria", "proteger_vantagem", "preservar_empate")
 PLACARES = ("1-0", "0-1", "1/2-1/2")
 
@@ -54,8 +55,8 @@ def validar_historico(fen_inicial, lances, fen_atual):
 
 @dataclass
 class Regras:
-    tempo: float = 900
-    incremento: float = 10
+    tempo: float = RITMO_CAMPEONATO[0]
+    incremento: float = RITMO_CAMPEONATO[1]
     armageddon_brancas: float = 300
     armageddon_pretas: float = 240
     incremento_armageddon: float = 0
@@ -127,6 +128,7 @@ class Confronto:
     justificativa_objetivo: str = ""
     decisao_oficial: dict | None = None
     regras_aplicadas: dict | None = None
+    bye: bool = False
 
     def regras(self, padrao):
         return Regras.de_dict(self.regras_aplicadas) if self.regras_aplicadas is not None else padrao
@@ -142,6 +144,8 @@ class Confronto:
             raise ValueError("Cor sorteada inválida.")
         if type(self.armageddon_autorizado) is not bool:
             raise ValueError("Confirmação do Armageddon inválida.")
+        if type(self.bye) is not bool or (self.bye and (self.fase != "classificacao" or self.formato != "unica" or self.partidas)):
+            raise ValueError("Bye só vale para rodada classificatória sem partida.")
         if self.objetivo_informado not in OBJETIVOS:
             raise ValueError("Objetivo inválido.")
         if self.objetivo_informado != "equilibrado" and not self.justificativa_objetivo.strip():
@@ -179,6 +183,8 @@ class Confronto:
         if normais and all(p.get("saldo_nosso_ms") is not None and p.get("saldo_outro_ms") is not None for p in normais):
             saldos = [sum(p[k] for p in normais) / 1000 for k in ("saldo_nosso_ms", "saldo_outro_ms")]
         base = {"partidas": len(normais), "diferenca": diferenca, "saldos": saldos}
+        if self.bye:
+            return dict(base, status="vitoria", criterio="Bye oficial (3 pontos)")
         if self.decisao_oficial is not None:
             return dict(base, status=self.decisao_oficial["status"], criterio=self.decisao_oficial["motivo"])
         def vencedor(ganhou):
@@ -194,7 +200,7 @@ class Confronto:
         elif diferenca:
             status, criterio = vencedor(diferenca > 0), "Placar"
         elif self.fase == "classificacao":
-            status, criterio = "empate", "Empate na fase classificatória; classificação pelo ELO oficial"
+            status, criterio = "empate", "Empate na fase classificatória (1 ponto)"
         elif saldos is None or any(p.get("origem_relogios") not in
                 ("fisico_oficial", "ajuste_oficial_pelo_operador", "simulacao_relogio_real", "cenario_sintetico") for p in normais):
             status, criterio = "relogios_pendentes", "Informar os saldos finais das partidas do confronto"
@@ -221,7 +227,7 @@ class Confronto:
             saldo = -saldo
         comum = dict(fase=self.fase, partida=n + 1, saldo_acumulado=saldo)
         if self.fase == "classificacao":
-            return Contexto(motivo="Classificatória: vitória, empate ou derrota; ELO calculado pela organização.",
+            return Contexto(motivo="Classificatória: vitória vale 3 pontos e empate vale 1.",
                             fase=self.fase, partida=n + 1)
         if situacao["status"] == "armageddon":
             if self.cor_armageddon is None:
@@ -351,7 +357,12 @@ class Campanha:
 
     def resumo(self):
         partidas = [p for c in self.confrontos for p in c.concluidas]
+        classificatorias = [c for c in self.confrontos if c.fase == "classificacao"]
+        byes = sum(c.bye for c in classificatorias)
+        pontos = 3 * byes + sum({"V": 3, "E": 1, "D": 0}[p["resultado"]]
+                                for c in classificatorias for p in c.concluidas if not p["armageddon"])
         return dict(equipe=self.equipe, campeonato=self.campeonato,
+                    pontos_classificacao=pontos, byes=byes,
                     vitorias=sum(p["resultado"] == "V" for p in partidas),
                     empates=sum(p["resultado"] == "E" for p in partidas),
                     derrotas=sum(p["resultado"] == "D" for p in partidas),

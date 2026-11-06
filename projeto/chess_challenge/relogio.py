@@ -23,6 +23,14 @@ def ler_tempo(texto):
     return valor
 
 
+def ler_saldos(texto):
+    valores = texto.split()
+    if len(valores) != 2:
+        raise ValueError("Informe os dois tempos na ordem BRANCAS PRETAS.")
+    brancas, pretas = map(ler_tempo, valores)
+    return {True: brancas, False: pretas}
+
+
 class TempoEsgotado(Exception):
     def __init__(self, cor):
         self.cor = cor

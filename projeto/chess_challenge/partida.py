@@ -16,7 +16,7 @@ from .inteligencia import Jogador, MODOS
 from .aberturas import Repertorio
 from .relatorios import PASTA_RELATORIOS, registrar_lance, salvar_relatorio, mostrar_tabuleiro
 from .relogio import (RelogioPartida, TempoEsgotado, JanelaPartida,
-                      entrada_com_prazo, formatar_relogios, formatar_tempo, ler_tempo)
+                      entrada_com_prazo, formatar_relogios, formatar_tempo, ler_saldos)
 
 
 def motivo_encerramento(tabuleiro):
@@ -115,7 +115,8 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
              pasta_relatorios=PASTA_RELATORIOS, tempo=900, incremento=10, modo="completo",
              configuracao="", cor_inicial=None, contexto=None, acompanhamento=None,
              tempo_adversario=None, agora=monotonic, repertorio=None,
-             compacto=False, exportar_relatorio=True, duracao_total_minutos=None):
+             compacto=False, exportar_relatorio=True, duracao_total_minutos=None,
+             estado_inicial=None):
     if not isfinite(tempo) or tempo <= 0 or not isfinite(incremento) or incremento < 0:
         raise ValueError("Tempo deve ser positivo e incremento não negativo.")
     if cor_inicial is not None and type(cor_inicial) is not bool:
@@ -125,6 +126,9 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
     cor, nome_motor, relogio = cor_inicial, "Stockfish", None
     resultado, sem_entrada, falha = "Partida interrompida.", False, None
     saldos = {True: tempo, False: tempo}
+    if estado_inicial is not None:
+        tabuleiro, registros, saldos = estado_inicial
+        repertorio = None
     try:
         while cor is None:
             escolha = entrada("Sua equipe joga com [1] Brancas ou [2] Pretas? ").strip().lower()
@@ -152,21 +156,26 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                 saida("Repertório indisponível; usando a análise normal do Stockfish.\n")
             if configuracao and not compacto:
                 saida(configuracao + "\n")
-            saldos = {cor: tempo, not cor: inicial_outro}
+            if estado_inicial is None:
+                saldos = {cor: tempo, not cor: inicial_outro}
             relogio = RelogioPartida(saldos[True], saldos[False], incremento, agora)
             if not compacto:
                 saida("Relógios automáticos iniciados. Digite apenas o lance adversário.\n")
-            relogio.iniciar(chess.WHITE)
+            relogio.iniciar(tabuleiro.turn)
+            if estado_inicial is not None:
+                relogio.ajustar(saldos[True], saldos[False])
+                saida("Partida retomada. " + formatar_relogios(saldos) + "\n")
             janela.iniciar()
-            fim = None
+            fim = motivo_encerramento(tabuleiro)
+            pausado = False
             try:
                 while fim is None:
                     turno = tabuleiro.turn
-                    if relogio.saldos()[turno] <= 0:
+                    if not pausado and relogio.saldos()[turno] <= 0:
                         raise TempoEsgotado(turno)
                     calculado = None
                     fim_futuro = None
-                    if turno == cor:
+                    if turno == cor and not pausado:
                         saida("IA pensando...\n")
                         atuais = relogio.saldos()
                         calculado = jogador.calcular(tabuleiro, atuais[cor], incremento,
@@ -183,8 +192,11 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                             jogador.preparar(futura, calculado)
                     else:
                         try:
-                            texto = entrada_com_prazo(entrada, "Adversário — digite o lance UCI: ",
-                                                       relogio.saldos()[turno])
+                            if pausado:
+                                texto = entrada("Pausa oficial — corrija o tabuleiro ou digite continuar BRANCAS PRETAS: ")
+                            else:
+                                texto = entrada_com_prazo(entrada, "Adversário — digite o lance UCI: ",
+                                                           relogio.saldos()[turno])
                         except TimeoutError:
                             raise TempoEsgotado(turno) from None
                         try:
@@ -193,10 +205,12 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                                 novo, novos = corrigir_tabuleiro(texto, tabuleiro, registros, cor)
                                 jogador.antecipacao.parar()
                                 jogador.repertorio = None  # Não reutilizar preparação após correção.
-                                relogio.reposicionar(novo.turn)
+                                if not pausado:
+                                    relogio.reposicionar(novo.turn)
                                 tabuleiro, registros = novo, novos
                                 saldos = relogio.saldos()
-                                fim = motivo_encerramento(tabuleiro)
+                                if not pausado:
+                                    fim = motivo_encerramento(tabuleiro)
                                 aviso = "Correção aplicada: " + texto
                                 saida(aviso + "\n" + mostrar_tabuleiro(tabuleiro) + "\n")
                                 if partes[0] == "fen":
@@ -208,10 +222,28 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                             if compacto and partes == ["fim"]:
                                 resultado = "Partida encerrada pelo operador; resultado oficial pendente."
                                 break
+                            if compacto and not pausado and partes == ["pausar"]:
+                                jogador.antecipacao.parar()
+                                saldos = relogio.parar()
+                                pausado = True
+                                saida("Contador local pausado. Use a janela de até 3 minutos autorizada pelo juiz.\n")
+                                continue
+                            if pausado:
+                                if partes[:1] != ["continuar"]:
+                                    raise ValueError("Use uma correção ou continuar BRANCAS PRETAS após a autorização do juiz.")
+                                saldos_fisicos = ler_saldos(" ".join(partes[1:]))
+                                relogio = RelogioPartida(saldos_fisicos[True], saldos_fisicos[False], incremento, agora)
+                                relogio.iniciar(tabuleiro.turn)
+                                relogio.ajustar(saldos_fisicos[True], saldos_fisicos[False])
+                                saldos = relogio.saldos()
+                                pausado = False
+                                fim = motivo_encerramento(tabuleiro)
+                                if acompanhamento:
+                                    acompanhamento("relogio_fisico", tabuleiro, registros, saldos, resultado)
+                                continue
                             if partes and partes[0] == "relogios":
-                                if len(partes) != 3:
-                                    raise ValueError("Use: relogios TEMPO_BRANCAS TEMPO_PRETAS, por exemplo relogios 14:30.250 14:05.125.")
-                                relogio.ajustar(ler_tempo(partes[1]), ler_tempo(partes[2]))
+                                saldos_fisicos = ler_saldos(" ".join(partes[1:]))
+                                relogio.ajustar(saldos_fisicos[True], saldos_fisicos[False])
                                 saldos = relogio.saldos()
                                 saida("Ajuste pelo relógio físico registrado. " + formatar_relogios(saldos) + "\n")
                                 if acompanhamento:
@@ -229,6 +261,8 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                     registro = replace(registro, tempo=gasto, saldo_brancas=saldos[True],
                                        saldo_pretas=saldos[False], fonte_tempo=relogio.fonte)
                     registros.append(registro)
+                    if acompanhamento:
+                        acompanhamento("lance", tabuleiro, registros, saldos, resultado)
                     if calculado is not None and not compacto:
                         saida(f"Análise: {calculado.tempo:.2f}s | "
                               f"{calculado.detalhes.get('criterio', 'Stockfish')}.\n")
@@ -240,8 +274,6 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                         previsto = janela.restante()
                         prazo = " | Previsão atingida" if previsto == 0 else f" | Previsão: {formatar_tempo(previsto)}"
                     saida(formatar_relogios(saldos) + prazo + "\n")
-                    if acompanhamento:
-                        acompanhamento("lance", tabuleiro, registros, saldos, resultado)
                 else:
                     resultado = fim
             except TempoEsgotado as erro:
@@ -290,8 +322,8 @@ def main(argv=None):
     parser.add_argument("--sem-abertura", action="store_true", help="Desativar o repertório preparado")
     parser.add_argument("--threads", type=int, default=THREADS_PADRAO)
     parser.add_argument("--hash", dest="hash_mb", type=int, default=HASH_PADRAO)
-    parser.add_argument("--tempo", type=float, default=900, help="Segundos iniciais; campeonato: 900")
-    parser.add_argument("--incremento", type=float, default=10, help="Segundos por lance; campeonato: 10")
+    parser.add_argument("--tempo", type=float, default=900, help="Segundos iniciais do jogo avulso")
+    parser.add_argument("--incremento", type=float, default=10, help="Segundos por lance do jogo avulso")
     args = parser.parse_args(argv)
     if args.threads < 1 or args.hash_mb < 1:
         parser.error("Threads e hash devem ser positivos.")

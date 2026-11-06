@@ -286,7 +286,7 @@ def test_partida_unica_empatada_e_tempos_iguais_tem_um_armageddon_em_qualquer_fa
     c = campanha.novo_confronto("Outra", fase=fase)
     normal = concluir(c, campanha.regras, "E", nosso=10.001, outro=10.001)
     assert normal["duracao_prevista_minutos"] == 25
-    assert (normal["tempo_nosso"], normal["tempo_outro"], normal["incremento"]) == (900, 900, 10)
+    assert (normal["tempo_nosso"], normal["tempo_outro"], normal["incremento"]) == (600, 600, 0)
     assert c.situacao(campanha.regras)["status"] == "armageddon"
     c.cor_armageddon = cor
     arm = concluir(c, campanha.regras, resultado)

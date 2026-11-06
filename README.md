@@ -27,22 +27,21 @@ cd /d/XADREZ/projeto && ./.venv/Scripts/python.exe -X utf8 jogar.py campeonato
 ```
 
 **Uma execução joga uma partida.** Repita o mesmo comando para a próxima partida.
-Na primeira utilização informe o nome da equipe; depois informe adversário, fase
-e nossa cor. Não é perguntada duração total da partida. O formato é definido
-pela fase: classificação, oitavas e quartas em partida única; semifinal e final
-em melhor de três. A opção legada de terceiro lugar só deve ser usada se houver
-orientação expressa da organização; o manual não define uma disputa separada.
+Na primeira utilização, informe o nome da equipe. Em seguida, informe adversário,
+fase e cor conforme o telão. Classificatória e quartas (Top 8) usam partida única.
+Semifinal e final seguem a melhor de três do manual.
 
 Digite somente o lance adversário em UCI (`e7e5`, `e1g1`, `e7e8q`). O software
 calcula e aplica nossos lances, mostrando o tabuleiro após cada jogada.
-Anuncie o lance, aguarde a repetição pelo adversário, mova a peça e acione o
-relógio físico. O tabuleiro e o relógio físicos são a referência oficial.
+Anuncie o lance decidido pelo software, aguarde a repetição pelo adversário,
+mova a peça e acione o relógio físico com a mesma mão. O tabuleiro e o relógio
+físicos são a referência oficial.
 O contador interno é uma estimativa: a troca automática de turno no software
 não observa o instante em que a equipe aciona o relógio físico.
 
-**Ritmo normal: 15 minutos por equipe +10 segundos por lance.** Sem limite total
-separado por partida ou rodada. Quatro threads e 512 MB de hash por padrão.
-O Stockfish distribui sua análise pelos saldos disponíveis; não há tempo fixo por lance.
+**Ritmo normal de 10 minutos por lado, sem incremento**, conforme o relógio
+demonstrado no briefing de 06/11. Quatro threads e 512 MB de hash por padrão.
+O Stockfish distribui sua análise pelos saldos disponíveis.
 Reserve tempo para digitação, anúncio, confirmação e movimento físico; tudo
 é descontado no relógio físico. É possível sincronizar as estimativas pelo comando abaixo.
 
@@ -54,17 +53,19 @@ No campo de lance adversário:
 | --- | --- |
 | `e7e5` | Registra o lance adversário e calcula nossa resposta |
 | `fim` | Encerra a sessão de jogo para registrar o resultado do árbitro |
-| `relogios 14:30.250 14:05.125` | Ajusta os contadores, sempre BRANCAS PRETAS |
+| `relogios 08:30.250 08:05.125` | Ajusta os contadores, sempre BRANCAS PRETAS |
 | `desfazer` | Desfaz os últimos dois meios-lances, normalmente adversário e nossa resposta |
 | `desfazer 1` | Desfaz exatamente um meio-lance |
 | `lances e2e4 e7e5 g1f3` | Reconstrói a partida com o histórico UCI completo desde o início |
-| `fen POSICAO_FEN` | Carrega uma FEN válida; não recupera repetições anteriores |
+| `fen POSICAO_FEN` | Carrega uma posição. Use a lista de lances para recuperar repetições |
+| `pausar` | Pausa os contadores locais quando o juiz autoriza a correção das duas equipes |
+| `continuar 08:30 08:05` | Após a pausa oficial, retoma com os saldos físicos em ordem BRANCAS PRETAS |
 
-Correções são validadas antes de alterar o tabuleiro, interrompem a antecipação
-antiga e ficam auditadas no banco. Não devolvem tempo nem concedem incremento.
-Prefira a lista completa de lances para preservar repetição e regra dos 50 lances.
-Depois de corrigir, sincronize os contadores com o relógio físico quando necessário.
-Não reinicie o programa para corrigir um erro: o manual exige mantê-lo aberto.
+Se só uma equipe divergir do tabuleiro, ela corrige seu software com o relógio
+físico correndo. Se os dois softwares divergirem do tabuleiro e o juiz mandar
+pausar, digite `pausar`, corrija a posição e use `continuar` quando ele autorizar.
+O juiz controla a janela de três minutos. Prefira a lista completa de lances
+para preservar repetições e a regra dos 50 lances.
 
 ### Encerramento e desempates
 
@@ -74,8 +75,9 @@ pendente; nenhum desempate é decidido com contadores internos. O resultado de
 mate/empate no tabuleiro é reconhecido; em encerramento externo, informe também
 vitória, empate ou derrota. Confirme qualquer divergência com a arbitragem.
 
-- Classificação: empate continua empate. Sem desempate por tempo ou Armageddon.
-- Oitavas/quartas: empate é decidido pelo maior saldo físico; igualdade leva a Armageddon.
+- Na classificatória, se o juiz encerrar a rodada sem resultado, digite `fim`
+  e selecione `[2] Empate`. Os capitães das duas equipes informam o resultado juntos à TI.
+- Nas quartas, o empate é decidido pelo maior saldo físico. Igualdade leva a Armageddon.
 - Semifinal/final: cores alternadas, terceira repete a primeira. Encerra assim que
   o adversário não puder alcançar o placar. Somente se o confronto terminar empatado
   compara a soma dos saldos físicos das partidas disputadas; igualdade leva a Armageddon.
@@ -83,10 +85,16 @@ vitória, empate ou derrota. Confirme qualquer divergência com a arbitragem.
   Não inicia automaticamente. Na próxima execução, informe a cor sorteada oficialmente.
   Brancas 5 minutos, pretas 4 minutos, sem incremento; empate classifica pretas.
 
-Cinco rodadas classificatórias; 16 melhores no ELO avançam. A organização calcula
-ELO, faz pareamentos e decide quem avança. O software guarda resultados e não
-inventa ranking ou pontuação 3/1/0. Uma partida adicional por igualdade de ELO
-pode ser registrada como novo confronto de classificação conforme o pareamento.
+O sistema suíço tem 6 ou 7 rodadas. Vitória vale 3 pontos, empate vale 1 e
+derrota vale 0. A primeira rodada é sorteada. A organização faz os pareamentos
+seguintes e publica o ranking. Se duas equipes empatam em pontos, o briefing
+prioriza quem venceu o adversário mais bem colocado. As oito melhores avançam
+para as quartas. O programa soma os pontos da equipe e a classificação oficial
+vem do telão.
+
+Para registrar um bye atribuído pelo telão, acrescente `--bye` e o número
+da rodada ao comando do campeonato. Por exemplo, `jogar.py campeonato --bye 3`
+registra 3 pontos na rodada 3.
 
 ### Histórico e entrega dos LOGs
 
@@ -100,10 +108,11 @@ Saldos físicos oficiais ficam separados dos contadores do sistema.
 **Entregue o LOG à banca ao final de cada partida**, por exemplo em pen drive.
 Os dados reais e LOGs não são publicados no GitHub.
 
-Sessão interrompida ou entrada dos saldos incompleta fica pendente. Ao executar
-novamente, o programa recolhe as informações restantes e encerra, sem começar
-outra partida nessa execução. Software travado/falha implica derrota conforme
-o manual; salvar o histórico não constitui autorização para retomar um jogo.
+Após travamento, acrescente `--retomar` ao comando do campeonato para abrir a
+mesma partida. Cada lance fica salvo no SQLite. Compare a posição recuperada
+com o tabuleiro físico, corrija com `lances`, `fen` ou `desfazer` se precisar,
+pressione Enter quando coincidir e informe os dois tempos físicos atuais.
+Se a partida já acabou, execute o comando normal para registrar o resultado.
 
 ### Opções opcionais
 
@@ -166,22 +175,23 @@ Ambiente de campeonato, ritmo de teste **5+1**, quatro threads/512 MB para ambos
 ```
 
 Ensaio padrão: melhor de três. Opções: `--formato classificacao` (sem desempate),
-`--formato unica --fase oitavas`, `--formato armageddon`, `--formato pares`.
+`--formato unica --fase quartas`, `--formato armageddon`, `--formato pares`.
 Armageddon de teste também sem incremento, 300/240 segundos. Os saldos no ensaio
 são simulados por relógios locais e identificados como simulação; nunca substituir
 os saldos físicos em jogos reais. TXT da bateria só é exportado com autorização.
 Testes não garantem força competitiva nem ausência de falhas.
 
-Validação em 04/11/2026 após a revisão do manual: **316 testes passaram**,
-incluindo dez integrações com o Stockfish real. Foram verificados classificação
-sem desempate, formatos por fase, melhor de três, saldos físicos, Armageddon,
-correções de tabuleiro, histórico de repetição, LOGs e comunicação com o motor.
-O ensaio real 5+1 dessa bateria é curto; não equivale a um confronto completo.
+Na validação de 06/11/2026, **319 testes passaram**, incluindo dez integrações
+com Stockfish real. A bateria cobre o ritmo 10+0, bye, pontuação, retomada da
+mesma partida, pausa oficial, desempates, saldos físicos e LOGs.
 
 ## Entrega e regras oficiais
 
-O [Manual do Participante](documentos/Manual%20do%20Participante%20-%20III%20Chess%20Challenge.pdf)
-prevalece sobre o edital e FAQ anteriores. Enviar **até 04/11/2026, 23h59** para
+O briefing em vídeo de 06/11 atualiza o ritmo, o formato da classificatória,
+o Top 8 e a retomada de partida do [Manual do Participante](documentos/Manual%20do%20Participante%20-%20III%20Chess%20Challenge.pdf).
+No dia, os três integrantes devem estar no credenciamento (13h a 14h30) e no
+início de cada jogo. Durante a partida, a operação é no notebook offline.
+O prazo de envio do código foi **04/11/2026, 23h59**, para
 **coordenacao.engsoftware@somosicev.com**, com nome da equipe e link do GitHub.
 Pode ser público ou privado; se privado, compartilhar com **dimmykarson**.
 O envio e a validação são obrigatórios. Não é necessário enviar executável.

@@ -91,7 +91,7 @@ def test_cli_configura_duracao_sem_mudar_relogios_e_nao_sobrescreve(tmp_path):
     assert cli(tmp_path, "regras", "--duracao-prevista", "30", "--tres-obrigatorias", "sim") == 0
     c = Repositorio(tmp_path / "campanha.sqlite3").carregar()
     assert c.regras.duracao_prevista_minutos == 30
-    assert (c.regras.tempo, c.regras.incremento) == (900, 10)
+    assert (c.regras.tempo, c.regras.incremento) == (600, 0)
     assert not {"pontos", "posicao_oficial"} & c.resumo().keys()
     assert not c.regras.encerrar_ao_decidir
     assert c.regras.incremento_armageddon == 0
@@ -208,11 +208,11 @@ def motor_vazio(*args):
     yield MotorSimulado([])
 
 
-def executar_sessao(tmp_path, respostas, lances=(), saidas=None):
+def executar_sessao(tmp_path, respostas, lances=(), saidas=None, opcoes=()):
     @contextmanager
     def conectar(*args):
         yield MotorSimulado(list(lances))
-    return cli(tmp_path, "iniciar", "--modo", "original", conectar=conectar,
+    return cli(tmp_path, "iniciar", "--modo", "original", *opcoes, conectar=conectar,
                entrada=entrada_da_partida(respostas), saida=(saidas.append if saidas is not None else lambda _: None))
 
 
@@ -226,7 +226,8 @@ def test_comando_unico_mate_salva_relogios_fisicos_e_log_limpo(tmp_path):
     assert p["origem"] == "tabuleiro" and p["origem_relogios"] == "fisico_oficial"
     assert (p["saldo_nosso_ms"], p["saldo_outro_ms"]) == (100250, 130125)
     assert p["duracao_prevista_minutos"] is None
-    assert p["relogios_sistema"]["brancas"] > 800
+    assert (p["tempo_nosso"], p["tempo_outro"], p["incremento"]) == (600, 600, 0)
+    assert 590 < p["relogios_sistema"]["brancas"] <= 600
     texto = Path(p["arquivo_log"]).read_text(encoding="utf-8")
     assert "SALDOS OFICIAIS DO RELÓGIO FÍSICO" in texto
     assert "Brancas: 130.125s | Pretas: 100.250s" in texto
@@ -237,7 +238,7 @@ def test_comando_unico_mate_salva_relogios_fisicos_e_log_limpo(tmp_path):
     assert "Saldos finais do sistema" in "\n".join(saidas)
 
 
-@pytest.mark.parametrize("fase,formato", [("1", "unica"), ("2", "unica"), ("3", "unica"),
+@pytest.mark.parametrize("fase,formato", [("1", "unica"), ("3", "unica"),
                                           ("4", "melhor-de-tres"), ("5", "melhor-de-tres")])
 def test_formato_definido_pela_fase_sem_pergunta_de_duracao(tmp_path, fase, formato):
     assert executar_sessao(tmp_path, ["Nossa", "Outra", fase, "2", "fim", "1", "10 20"]) == 0
@@ -251,15 +252,16 @@ def test_classificacao_empate_nao_decide_por_tempo_nem_armageddon(tmp_path, sald
     repo = Repositorio(tmp_path / "campanha.sqlite3")
     campanha = repo.carregar()
     assert campanha.confrontos[0].situacao(campanha.regras)["status"] == "empate"
+    assert campanha.resumo()["pontos_classificacao"] == 1
     ctx = campanha.contexto(campanha.confrontos[0])
     assert not ctx.desempate_por_tempo and not ctx.com_relogios(200, 100).empate_classifica
     assert executar_sessao(tmp_path, ["Próximo", "1", "2", "fim", "1", "90 80"]) == 0
     assert len(repo.carregar().confrontos) == 2
+    assert repo.carregar().resumo()["pontos_classificacao"] == 4
 
 
 def test_desempate_fisico_contrario_ao_contador_interno(tmp_path):
-    # Our black local clock is near 900; only white physical balance is larger.
-    assert executar_sessao(tmp_path, ["Nossa", "Outra", "2", "2", "fim", "2", "200 100"]) == 0
+    assert executar_sessao(tmp_path, ["Nossa", "Outra", "3", "2", "fim", "2", "200 100"]) == 0
     campanha = Repositorio(tmp_path / "campanha.sqlite3").carregar()
     c = campanha.confrontos[0]
     assert c.situacao(campanha.regras)["status"] == "eliminado"
@@ -268,7 +270,7 @@ def test_desempate_fisico_contrario_ao_contador_interno(tmp_path):
 
 @pytest.mark.parametrize("cor", ["1", "2"])
 def test_armageddon_so_na_proxima_execucao_e_cor_sorteada(tmp_path, cor):
-    assert executar_sessao(tmp_path, ["Nossa", "Outra", "2", "2", "fim", "2", "100 100", "s"]) == 0
+    assert executar_sessao(tmp_path, ["Nossa", "Outra", "3", "2", "fim", "2", "100 100", "s"]) == 0
     repo = Repositorio(tmp_path / "campanha.sqlite3")
     c = repo.carregar().confrontos[0]
     assert len(c.partidas) == 1 and c.armageddon_autorizado
@@ -284,7 +286,7 @@ def test_armageddon_so_na_proxima_execucao_e_cor_sorteada(tmp_path, cor):
 
 @pytest.mark.parametrize("confirmacao", ["n", "", EOFError()])
 def test_armageddon_sem_confirmacao_nao_inicia(tmp_path, confirmacao):
-    assert executar_sessao(tmp_path, ["Nossa", "Outra", "2", "2", "fim", "2", "100 100", confirmacao]) == 0
+    assert executar_sessao(tmp_path, ["Nossa", "Outra", "3", "2", "fim", "2", "100 100", confirmacao]) == 0
     repo = Repositorio(tmp_path / "campanha.sqlite3")
     c = repo.carregar().confrontos[0]
     assert len(c.partidas) == 1 and not c.armageddon_autorizado
@@ -315,7 +317,7 @@ def test_melhor_de_tres_duas_vitorias_encerram_sem_terceira(tmp_path):
 
 
 def test_relogio_fisico_obrigatorio_invalido_pendente_e_reabertura(tmp_path):
-    assert executar_sessao(tmp_path, ["Nossa", "Outra", "2", "2", "f2f3", "g2g4", "nan 20", "10", ""],
+    assert executar_sessao(tmp_path, ["Nossa", "Outra", "3", "2", "f2f3", "g2g4", "nan 20", "10", ""],
                            ["e7e5", "d8h4"]) == 0
     repo = Repositorio(tmp_path / "campanha.sqlite3")
     p = repo.carregar().confrontos[0].ativa
@@ -327,7 +329,7 @@ def test_relogio_fisico_obrigatorio_invalido_pendente_e_reabertura(tmp_path):
 
 
 def test_resultado_externo_preservado_se_relogios_ficam_pendentes(tmp_path):
-    assert executar_sessao(tmp_path, ["Nossa", "Outra", "2", "2", "fim", "1", ""]) == 0
+    assert executar_sessao(tmp_path, ["Nossa", "Outra", "3", "2", "fim", "1", ""]) == 0
     p = Repositorio(tmp_path / "campanha.sqlite3").carregar().confrontos[0].ativa
     assert p["encerramento_confirmado"]["placar"] == "0-1"
     assert executar_sessao(tmp_path, ["10 20"]) == 0
@@ -486,10 +488,66 @@ def test_log_nao_sobrescreve_outra_partida(tmp_path):
     assert caminho.read_text() == "Outra partida"
 
 
+def test_bye_oficial_pontua_uma_vez_e_nao_abre_motor(tmp_path):
+    def proibido(*args):
+        pytest.fail("Bye não abre motor nem pede dados de partida.")
+
+    assert cli(tmp_path, "iniciar", "--bye", "1", entrada=entrada_da_partida(["Nossa"]), conectar=proibido) == 0
+    assert cli(tmp_path, "iniciar", "--bye", "1", entrada=proibido, conectar=proibido) == 0
+    repo = Repositorio(tmp_path / "campanha.sqlite3")
+    campanha = repo.carregar()
+    assert campanha.resumo()["pontos_classificacao"] == 3
+    assert campanha.resumo()["byes"] == 1
+    assert campanha.confrontos[0].partidas == []
+    assert executar_sessao(tmp_path, ["Outra", "1", "2", "fim", "2", "100 100"]) == 0
+    assert repo.carregar().resumo()["pontos_classificacao"] == 4
+    assert cli(tmp_path, "iniciar", "--bye", "2", entrada=proibido, conectar=proibido) == 1
+
+
+def test_cadastro_legado_atualiza_relogio_sem_alterar_partida_anterior(tmp_path):
+    campanha = Campanha("Nossa", regras=Regras(tempo=900, incremento=10))
+    c = campanha.novo_confronto("Outra")
+    anterior = c.iniciar(campanha.regras)
+    c.finalizar(anterior["id"], "1-0", "Confirmado pela arbitragem")
+    campanha.novo_confronto("Próxima", rodada=2, primeira_cor=None)
+    repo = Repositorio(tmp_path / "campanha.sqlite3")
+    repo.criar(campanha)
+    assert executar_sessao(tmp_path, ["2", "fim", "2", "200 100"]) == 0
+    primeira, segunda = (c.concluidas[0] for c in repo.carregar().confrontos)
+    assert (primeira["tempo_nosso"], primeira["incremento"]) == (900, 10)
+    assert (segunda["tempo_nosso"], segunda["incremento"]) == (600, 0)
+
+
+def test_retoma_partida_com_historico_e_relogios_fisicos(tmp_path):
+    assert executar_sessao(tmp_path, ["Nossa", "Outra", "1", "2", "f2f3", EOFError(), ""], ["e7e5"]) == 0
+    repo = Repositorio(tmp_path / "campanha.sqlite3")
+    antes = repo.carregar().confrontos[0].ativa
+    assert antes["lances"] == ["f2f3", "e7e5"]
+    assert executar_sessao(tmp_path, ["", "08:20 07:30", "g2g4", "490 440"], ["d8h4"], opcoes=("--retomar",)) == 0
+    c = repo.carregar().confrontos[0]
+    p, = c.concluidas
+    assert p["id"] == antes["id"] and p["retomadas"]
+    assert p["lances"] == ["f2f3", "e7e5", "g2g4", "d8h4"]
+    assert p["registros"][:2] == antes["registros"]
+    assert (p["ajustes_relogio"][-1]["brancas"], p["ajustes_relogio"][-1]["pretas"]) == (500, 450)
+    assert Path(p["arquivo_log"]).name == Path(antes["arquivo_log"]).name
+
+
+def test_pausa_oficial_corrige_posicao_e_so_joga_apos_continuar(tmp_path):
+    saidas = []
+    respostas = ["Nossa", "Outra", "1", "2", "pausar", "lances f2f3", "g2g4",
+                 "continuar 08:20 07:30", "g2g4", "490 440"]
+    assert executar_sessao(tmp_path, respostas, ["e7e5", "d8h4"], saidas) == 0
+    p = Repositorio(tmp_path / "campanha.sqlite3").carregar().confrontos[0].concluidas[0]
+    assert p["lances"] == ["f2f3", "e7e5", "g2g4", "d8h4"]
+    assert p["registros"][1]["saldo_pretas"] <= 450
+    assert any("após a autorização do juiz" in s for s in saidas)
+
+
 @pytest.mark.motor_real
 def test_sessao_real_completo_book_e_saldos_fisicos(tmp_path):
     assert cli(tmp_path, "iniciar", entrada=entrada_da_partida(
-        ["Nossa", "Outra", "2", "1", "e7e5", "fim", "3", "800 810"])) == 0
+        ["Nossa", "Outra", "3", "1", "e7e5", "fim", "3", "560 570"])) == 0
     p = Repositorio(tmp_path / "campanha.sqlite3").carregar().confrontos[0].concluidas[0]
     assert p["resultado"] == "D" and p["origem_relogios"] == "fisico_oficial"
     assert json.loads(p["registros"][0]["detalhes"])["fonte"] == "abertura_preparada"
