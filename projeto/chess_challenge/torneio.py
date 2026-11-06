@@ -2,10 +2,12 @@
 
 import argparse
 from dataclasses import asdict
+from datetime import datetime
 from functools import partial
 import json
 from pathlib import Path
 import sqlite3
+from time import time
 
 import chess
 import chess.engine
@@ -127,6 +129,7 @@ def jogar_campanha(campanha, repo, args, entrada=input, saida=partial(print, flu
 
 def executar_partida(campanha, repo, args, c, p, contexto, entrada, saida, conectar,
                      automatico, estado_inicial=None):
+    ajuste_retomada = False
 
     def acompanhar(evento, board, registros, saldos, resultado):
         lances = [m.uci() for m in board.move_stack]
@@ -140,9 +143,14 @@ def executar_partida(campanha, repo, args, c, p, contexto, entrada, saida, conec
                  saldo_estimado=saldos[p["cor"]],
                  saldo_outro_estimado=saldos[not p["cor"]],
                  relogios_sistema={"brancas": saldos[True], "pretas": saldos[False]},
+                 instante_relogios=time(),
                  origem_relogios="sistema",
                  fen_atual=board.fen(), ultima_atualizacao=agora())
-        if evento in ("relogio_fisico", "retomada"):
+        if evento == "pausa_oficial":
+            p["relogio_pausado"] = True
+        elif evento in ("relogio_fisico", "retomada"):
+            p["relogio_pausado"] = False
+        if evento == "relogio_fisico" or (evento == "retomada" and ajuste_retomada):
             p.setdefault("ajustes_relogio", []).append(dict(data=agora(),
                 meio_lance=len(board.move_stack), brancas=saldos[True], pretas=saldos[False]))
         if p.get("ajustes_relogio"):
@@ -161,9 +169,10 @@ def executar_partida(campanha, repo, args, c, p, contexto, entrada, saida, conec
         repo.salvar(campanha)
 
     if estado_inicial is not None:
+        tabuleiro, registros, saldos, ajuste_retomada = estado_inicial
         p.update(status="em_andamento", sugestao_placar=None)
         p.setdefault("retomadas", []).append(agora())
-        acompanhar("retomada", *estado_inicial, "Retomada conferida pelo tabuleiro físico")
+        acompanhar("retomada", tabuleiro, registros, saldos, "Retomada conferida pelo tabuleiro físico")
 
     try:
         executar(entrada, saida, conectar=partial(conectar, args.motor, args.threads, args.hash_mb),
@@ -196,11 +205,27 @@ def reconstruir_tabuleiro(partida):
     return tabuleiro
 
 
+def estimar_saldos_retomada(partida, turno_salvo):
+    salvos = partida.get("relogios_sistema")
+    if salvos:
+        saldos = {True: salvos["brancas"], False: salvos["pretas"]}
+    else:
+        cor = partida["cor"]
+        saldos = {cor: partida["tempo_nosso"], not cor: partida["tempo_outro"]}
+    if not partida.get("relogio_pausado"):
+        instante = partida.get("instante_relogios")
+        if instante is None:
+            instante = datetime.fromisoformat(partida.get("ultima_atualizacao") or partida["inicio"]).timestamp()
+        saldos[turno_salvo] = max(0, saldos[turno_salvo] - max(0, time() - instante))
+    return saldos
+
+
 def retomar_partida(campanha, repo, args, c, entrada, saida, conectar):
     p = c.ativa
     if p.get("encerramento_confirmado"):
         raise ValueError("O resultado já foi confirmado. Execute sem --retomar para concluir o registro.")
     tabuleiro = reconstruir_tabuleiro(p)
+    turno_salvo = tabuleiro.turn
     salvos = [RegistroLance(**r) for r in p.get("registros", [])]
     registros, raiz = [], tabuleiro.root()
     for i, lance in enumerate(tabuleiro.move_stack):
@@ -210,26 +235,30 @@ def retomar_partida(campanha, repo, args, c, entrada, saida, conectar):
             registros.append(registrar_lance(raiz, lance, p["cor"]))
         raiz.push(lance)
     saida("Compare a posição recuperada com o tabuleiro físico.")
+    saldos_fisicos = None
     while True:
         saida(mostrar_tabuleiro(tabuleiro))
-        texto = entrada("Enter se coincide, ou use lances, fen ou desfazer: ").strip()
+        texto = entrada("Enter para retomar com o relógio estimado, ou digite lances, fen, desfazer ou relogios: ").strip()
         if not texto:
-            break
+            saldos = saldos_fisicos if saldos_fisicos is not None else estimar_saldos_retomada(p, turno_salvo)
+            if min(saldos.values()) > 0:
+                break
+            saida("Um contador estimado chegou a zero. Se a partida continua, digite relogios BRANCAS PRETAS.")
+            continue
         try:
-            tabuleiro, registros = corrigir_tabuleiro(texto, tabuleiro, registros, p["cor"])
-        except ValueError as erro:
-            saida(str(erro))
-    while True:
-        try:
-            saldos = ler_saldos(entrada("Relógio físico atual — BRANCAS PRETAS: "))
-            if min(saldos.values()) <= 0:
-                raise ValueError("Para retomar, ambos os tempos devem estar acima de zero. Se a partida acabou, registre o resultado.")
-            break
+            partes = texto.split(maxsplit=1)
+            if partes[0].lower() == "relogios":
+                ajuste = ler_saldos(partes[1] if len(partes) == 2 else "")
+                if min(ajuste.values()) <= 0:
+                    raise ValueError("Para retomar, ambos os tempos devem estar acima de zero.")
+                saldos_fisicos = ajuste
+            else:
+                tabuleiro, registros = corrigir_tabuleiro(texto, tabuleiro, registros, p["cor"])
         except ValueError as erro:
             saida(str(erro))
     contexto = Contexto(**p["contexto"]) if p.get("contexto") else campanha.contexto(c)
     return executar_partida(campanha, repo, args, c, p, contexto, entrada, saida, conectar,
-                            automatico=True, estado_inicial=(tabuleiro, registros, saldos))
+                            automatico=True, estado_inicial=(tabuleiro, registros, saldos, saldos_fisicos is not None))
 
 
 def escolher(texto, opcoes, entrada, saida, padrao=None):
@@ -492,7 +521,7 @@ def criar_parser():
         if nome == "iniciar":
             p.set_defaults(arquivo=ARQUIVO_PADRAO.with_name("campeonato.sqlite3"))
             operacao = p.add_mutually_exclusive_group()
-            operacao.add_argument("--retomar", action="store_true", help="Retomar a partida pendente após conferir o tabuleiro e os relógios físicos")
+            operacao.add_argument("--retomar", action="store_true", help="Retomar a partida pendente com o tabuleiro conferido e os tempos estimados")
             operacao.add_argument("--bye", type=int, metavar="RODADA", help="Registrar um bye atribuído pela organização")
     p = comando("resultado", "Registrar ou corrigir resultado confirmado pelo árbitro")
     p.add_argument("--partida", help="ID; por padrão usa a partida pendente")

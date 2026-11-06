@@ -518,18 +518,31 @@ def test_cadastro_legado_atualiza_relogio_sem_alterar_partida_anterior(tmp_path)
     assert (segunda["tempo_nosso"], segunda["incremento"]) == (600, 0)
 
 
-def test_retoma_partida_com_historico_e_relogios_fisicos(tmp_path):
-    assert executar_sessao(tmp_path, ["Nossa", "Outra", "1", "2", "f2f3", EOFError(), ""], ["e7e5"]) == 0
+@pytest.mark.parametrize("ajuste_fisico,pausado", [(False, False), (True, False), (False, True)])
+def test_retoma_partida_com_historico_e_tempos(tmp_path, monkeypatch, ajuste_fisico, pausado):
+    instante = [1000]
+    monkeypatch.setattr(torneio, "time", lambda: instante[0])
+    pausa = ["pausar"] if pausado else []
+    assert executar_sessao(tmp_path, ["Nossa", "Outra", "1", "2", "f2f3", *pausa, EOFError(), ""], ["e7e5"]) == 0
     repo = Repositorio(tmp_path / "campanha.sqlite3")
     antes = repo.carregar().confrontos[0].ativa
     assert antes["lances"] == ["f2f3", "e7e5"]
-    assert executar_sessao(tmp_path, ["", "08:20 07:30", "g2g4", "490 440"], ["d8h4"], opcoes=("--retomar",)) == 0
+    instante[0] += 25
+    ajuste = ["relogios 08:20 07:30"] if ajuste_fisico else []
+    assert executar_sessao(tmp_path, [*ajuste, "", "g2g4", "490 440"], ["d8h4"], opcoes=("--retomar",)) == 0
     c = repo.carregar().confrontos[0]
     p, = c.concluidas
     assert p["id"] == antes["id"] and p["retomadas"]
     assert p["lances"] == ["f2f3", "e7e5", "g2g4", "d8h4"]
     assert p["registros"][:2] == antes["registros"]
-    assert (p["ajustes_relogio"][-1]["brancas"], p["ajustes_relogio"][-1]["pretas"]) == (500, 450)
+    if ajuste_fisico:
+        assert (p["ajustes_relogio"][-1]["brancas"], p["ajustes_relogio"][-1]["pretas"]) == (500, 450)
+    else:
+        assert not p.get("ajustes_relogio")
+        salvos = antes["relogios_sistema"]
+        desconto = 0 if pausado else 25
+        assert p["registros"][2]["saldo_brancas"] == pytest.approx(salvos["brancas"] - desconto, abs=1)
+        assert p["registros"][2]["saldo_pretas"] == pytest.approx(salvos["pretas"], abs=1)
     assert Path(p["arquivo_log"]).name == Path(antes["arquivo_log"]).name
 
 

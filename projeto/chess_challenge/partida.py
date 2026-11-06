@@ -126,8 +126,9 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
     cor, nome_motor, relogio = cor_inicial, "Stockfish", None
     resultado, sem_entrada, falha = "Partida interrompida.", False, None
     saldos = {True: tempo, False: tempo}
+    ajuste_fisico = False
     if estado_inicial is not None:
-        tabuleiro, registros, saldos = estado_inicial
+        tabuleiro, registros, saldos, ajuste_fisico = estado_inicial
         repertorio = None
     try:
         while cor is None:
@@ -163,8 +164,10 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                 saida("Relógios automáticos iniciados. Digite apenas o lance adversário.\n")
             relogio.iniciar(tabuleiro.turn)
             if estado_inicial is not None:
-                relogio.ajustar(saldos[True], saldos[False])
-                saida("Partida retomada. " + formatar_relogios(saldos) + "\n")
+                if ajuste_fisico:
+                    relogio.ajustar(saldos[True], saldos[False])
+                origem = "ajuste físico" if ajuste_fisico else "contadores estimados"
+                saida(f"Partida retomada com {origem}. " + formatar_relogios(saldos) + "\n")
             janela.iniciar()
             fim = motivo_encerramento(tabuleiro)
             pausado = False
@@ -226,6 +229,8 @@ def executar(entrada=input, saida=partial(print, flush=True), conectar=abrir_mot
                                 jogador.antecipacao.parar()
                                 saldos = relogio.parar()
                                 pausado = True
+                                if acompanhamento:
+                                    acompanhamento("pausa_oficial", tabuleiro, registros, saldos, resultado)
                                 saida("Contador local pausado. Use a janela de até 3 minutos autorizada pelo juiz.\n")
                                 continue
                             if pausado:

@@ -111,7 +111,10 @@ Os dados reais e LOGs não são publicados no GitHub.
 Após travamento, acrescente `--retomar` ao comando do campeonato para abrir a
 mesma partida. Cada lance fica salvo no SQLite. Compare a posição recuperada
 com o tabuleiro físico, corrija com `lances`, `fen` ou `desfazer` se precisar,
-pressione Enter quando coincidir e informe os dois tempos físicos atuais.
+e pressione Enter quando coincidir. O programa recupera os contadores salvos e
+desconta o tempo decorrido do lado que estava na vez, salvo durante pausa oficial.
+Se precisar sincronizar com o relógio físico, digite `relogios 08:30 08:05`
+antes de pressionar Enter. O relógio físico continua sendo a referência oficial.
 Se a partida já acabou, execute o comando normal para registrar o resultado.
 
 ### Opções opcionais
